@@ -6,7 +6,6 @@ export const whatsappSessions = sqliteTable("whatsapp_sessions", {
   phoneNumber: text("phone_number"),
   status: text("status").default("pending").notNull(),
   creds: text("creds"),
-  qrCode: text("qr_code"),
   createdAt: integer("created_at").default(sql`(unixepoch())`).notNull(),
   updatedAt: integer("updated_at").default(sql`(unixepoch())`).notNull(),
 });

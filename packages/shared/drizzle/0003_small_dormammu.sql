@@ -1,0 +1,1 @@
+ALTER TABLE `whatsapp_sessions` DROP COLUMN `qr_code`;

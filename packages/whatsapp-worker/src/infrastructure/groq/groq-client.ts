@@ -37,6 +37,14 @@ export class GroqClient {
     this.llmModel = llmModel;
   }
 
+  private withoutGroqDebug<T>(fn: () => Promise<T>): Promise<T> {
+    const saved = process.env.DEBUG;
+    delete process.env.DEBUG;
+    return fn().finally(() => {
+      if (saved !== undefined) process.env.DEBUG = saved;
+    });
+  }
+
   async transcribeAudio(audioBuffer: Buffer, mimetype: string): Promise<string> {
     const ext = getExtensionFromMimetype(mimetype || 'audio/ogg');
     const fileMimetype = getMimeTypeFromExtension(ext);
@@ -48,12 +56,12 @@ export class GroqClient {
     try {
       const file = new File([new Uint8Array(audioBuffer)], filename, { type: fileMimetype });
 
-      const response = await this.groq.audio.transcriptions.create({
+      const response = await this.withoutGroqDebug(() => this.groq.audio.transcriptions.create({
         model: this.whisperModel,
         file,
         response_format: 'text',
         language: 'es',
-      });
+      }));
 
       const transcription = typeof response === 'string' ? response : response.text;
       this.logger.info({ filename, transcriptionLength: transcription?.length ?? 0 }, 'Whisper transcription complete');
@@ -85,7 +93,7 @@ export class GroqClient {
     this.logger.info({ transcriptionLength, model: this.llmModel }, 'Summarizing transcription');
 
     try {
-      const response = await this.groq.chat.completions.create({
+      const response = await this.withoutGroqDebug(() => this.groq.chat.completions.create({
         model: this.llmModel,
         messages: [
           {
@@ -99,7 +107,7 @@ export class GroqClient {
         ],
         temperature: 0.3,
         max_completion_tokens: 256,
-      });
+      }));
 
       const summary = response.choices[0]?.message?.content ?? '';
       this.logger.info({ summaryLength: summary.length, model: this.llmModel }, 'Summarization complete');
