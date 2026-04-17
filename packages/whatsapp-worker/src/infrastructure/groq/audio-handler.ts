@@ -34,10 +34,19 @@ export class AudioHandler {
       const result = await this.groqClient.processAudioMessage(audioBuffer, mimetype);
 
       let reply: string;
-      if (isFromOtherChat && senderPhoneNumber) {
-        reply = `📱 Mensaje de ${senderPhoneNumber}:\n\n🎤 *Transcripción:*\n${result.transcription}\n\n📝 *Resumen:*\n${result.summary}`;
+
+      if (!result.transcription?.trim()) {
+        reply = isFromOtherChat && senderPhoneNumber
+          ? `📱 Mensaje de ${senderPhoneNumber}:\n\n⚠️ No se pudo transcribir el audio.`
+          : '⚠️ No se pudo transcribir el audio.';
+      } else if (!result.summary?.trim()) {
+        reply = isFromOtherChat && senderPhoneNumber
+          ? `📱 Mensaje de ${senderPhoneNumber}:\n\n🎤 *Transcripción:*\n${result.transcription}`
+          : `🎤 *Transcripción:*\n${result.transcription}`;
       } else {
-        reply = `🎤 *Transcripción:*\n${result.transcription}\n\n📝 *Resumen:*\n${result.summary}`;
+        reply = isFromOtherChat && senderPhoneNumber
+          ? `📱 Mensaje de ${senderPhoneNumber}:\n\n🎤 *Transcripción:*\n${result.transcription}\n\n📝 *Resumen:*\n${result.summary}`
+          : `🎤 *Transcripción:*\n${result.transcription}\n\n📝 *Resumen:*\n${result.summary}`;
       }
 
       await socket.sendMessage(cleanOwnerJid, { text: reply });

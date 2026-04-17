@@ -55,7 +55,7 @@ export class GroqClient {
         language: 'es',
       });
 
-      const transcription = response.text;
+      const transcription = typeof response === 'string' ? response : response.text;
       this.logger.info({ filename, transcriptionLength: transcription?.length ?? 0 }, 'Whisper transcription complete');
       return transcription;
     } catch (err: any) {
@@ -76,6 +76,12 @@ export class GroqClient {
 
   async summarizeTranscription(transcription: string): Promise<string> {
     const transcriptionLength = transcription?.length ?? 0;
+
+    if (!transcription?.trim()) {
+      this.logger.warn({ transcriptionLength, model: this.llmModel }, 'Skipping summarization: transcription is empty');
+      return '';
+    }
+
     this.logger.info({ transcriptionLength, model: this.llmModel }, 'Summarizing transcription');
 
     try {
@@ -108,7 +114,7 @@ export class GroqClient {
         transcriptionLength,
         model: this.llmModel,
       }, 'Groq LLM summarization failed');
-      throw err;
+      return '';
     }
   }
 

@@ -284,11 +284,11 @@ export class BaileysConnectionManager {
     });
   }
 
-  async disconnectSession(sessionId: string): Promise<void> {
+  async disconnectSession(sessionId: string, deleteData = true): Promise<void> {
     const session = this.sessions.get(sessionId);
     if (!session) return;
 
-    this.logger.info({ sessionId }, 'Disconnecting session');
+    this.logger.info({ sessionId, deleteData }, 'Disconnecting session');
 
     const reconnectTimeout = this.reconnectTimeouts.get(sessionId);
     if (reconnectTimeout) {
@@ -305,7 +305,13 @@ export class BaileysConnectionManager {
     }
 
     try { await session.socket.end(undefined); } catch {}
-    await this.deleteSessionData(sessionId);
+
+    if (deleteData) {
+      await this.deleteSessionData(sessionId);
+    } else {
+      await this.updateSessionStatus(sessionId, 'disconnected');
+    }
+
     this.sessions.delete(sessionId);
 
     this.eventEmitter.emit('DISCONNECTED', { sessionId });
@@ -613,8 +619,11 @@ export class BaileysConnectionManager {
 
   async destroy(): Promise<void> {
     this.stopHeartbeat();
+    // On shutdown, close sockets and flush keys but PRESERVE session data
+    // so sessions can be restored on next container start.
+    // Only the explicit API disconnect should delete data.
     for (const [sessionId] of this.sessions) {
-      await this.disconnectSession(sessionId);
+      await this.disconnectSession(sessionId, false);
     }
     for (const [, keyStore] of this.keyStores) {
       keyStore.destroy();
