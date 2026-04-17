@@ -1,0 +1,29 @@
+{
+  "name": "chepibe-personal",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Privacy-first WhatsApp audio transcription via Groq. Self-hosted, zero logs, open source.",
+  "scripts": {
+    "dev:web": "node scripts/load-env.js pnpm --filter @chepibe-personal/web dev",
+    "dev:worker": "node scripts/load-env.js pnpm --filter @chepibe-personal/whatsapp-worker dev",
+    "build:shared": "pnpm --filter @chepibe-personal/shared build",
+    "build:web": "node scripts/load-env.js pnpm --filter @chepibe-personal/web build",
+    "build:worker": "node scripts/load-env.js pnpm --filter @chepibe-personal/whatsapp-worker build",
+    "build": "pnpm build:shared && pnpm build:worker && pnpm build:web",
+    "start": "docker compose up -d",
+    "stop": "docker compose down",
+    "logs": "docker compose logs -f",
+    "db:generate": "pnpm --filter @chepibe-personal/shared db:generate",
+    "db:migrate": "pnpm --filter @chepibe-personal/shared db:migrate",
+    "db:studio": "pnpm --filter @chepibe-personal/shared db:studio",
+    "lint": "oxlint packages/"
+  },
+  "devDependencies": {
+    "oxlint": "^1.58.0",
+    "typescript": "^5.9.3"
+  },
+  "engines": {
+    "node": ">=22",
+    "pnpm": ">=9"
+  }
+}

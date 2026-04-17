@@ -1,0 +1,39 @@
+{
+  "name": "@chepibe-personal/shared",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Shared database schema, types, and events for chepibe-personal",
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "drizzle"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    },
+    "./drizzle": "./drizzle",
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "build": "tsup",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:studio": "drizzle-kit studio",
+    "db:push": "drizzle-kit push"
+  },
+  "dependencies": {
+    "@libsql/client": "^0.14.0",
+    "drizzle-orm": "^0.40.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "drizzle-kit": "^0.30.0",
+    "tsup": "^8.4.0",
+    "typescript": "^5.9.3"
+  }
+}

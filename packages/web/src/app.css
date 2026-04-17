@@ -1,0 +1,228 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap');
+@import "tailwindcss";
+
+:root {
+  /* Background Colors */
+  --background: #fafaf9;
+  --background-alt: #f5f5f4;
+
+  /* Text Colors */
+  --foreground: #1c1917;
+  --foreground-muted: #57534e;
+  --foreground-subtle: #a8a29e;
+
+  /* Primary Colors (Teal/Green) */
+  --primary: #14b8a6;
+  --primary-dark: #0d9488;
+  --primary-light: #2dd4bf;
+  --primary-glow: rgba(20, 184, 166, 0.15);
+
+  /* Accent Colors (Yellow/Gold) */
+  --accent: #fbbf24;
+  --accent-dark: #f59e0b;
+  --accent-glow: rgba(251, 191, 36, 0.2);
+
+  /* WhatsApp Brand Colors */
+  --whatsapp: #25D366;
+  --whatsapp-dark: #128C7E;
+
+  /* Gradients */
+  --gradient-primary: linear-gradient(135deg, #14b8a6 0%, #0d9488 100%);
+  --gradient-accent: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
+  --gradient-mixed: linear-gradient(135deg, #14b8a6 0%, #fbbf24 100%);
+  --gradient-hero: linear-gradient(135deg, rgba(20, 184, 166, 0.08) 0%, rgba(251, 191, 36, 0.08) 50%, rgba(20, 184, 166, 0.05) 100%);
+
+  /* Card Border */
+  --card-border: rgba(0, 0, 0, 0.06);
+}
+
+* {
+  font-family: 'Inter', sans-serif;
+}
+
+h1, h2, h3, h4, h5, h6, .font-display {
+  font-family: 'Space Grotesk', sans-serif;
+}
+
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+}
+
+/* Typography */
+.text-foreground { color: var(--foreground); }
+.text-foreground-muted { color: var(--foreground-muted); }
+.text-foreground-subtle { color: var(--foreground-subtle); }
+
+/* Buttons */
+.btn-primary {
+  background: var(--gradient-primary);
+  color: white;
+  padding: 0.75rem 1.5rem;
+  border-radius: 12px;
+  font-weight: 600;
+  box-shadow: 0 4px 16px rgba(20, 184, 166, 0.35);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.btn-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(20, 184, 166, 0.45);
+}
+
+.btn-secondary {
+  background: var(--gradient-accent);
+  color: white;
+  padding: 0.75rem 1.5rem;
+  border-radius: 12px;
+  font-weight: 600;
+  box-shadow: 0 4px 16px rgba(251, 191, 36, 0.35);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.btn-secondary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(251, 191, 36, 0.45);
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--foreground-muted);
+  border: 1px solid var(--card-border);
+  padding: 0.75rem 1.5rem;
+  border-radius: 12px;
+  font-weight: 600;
+  transition: all 0.2s ease;
+}
+
+.btn-ghost:hover {
+  background: rgba(0, 0, 0, 0.03);
+  color: var(--foreground);
+}
+
+/* Cards */
+.glass-card {
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--card-border);
+  border-radius: 1rem;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
+}
+
+.card {
+  background: #ffffff;
+  border: 1px solid var(--card-border);
+  border-radius: 1rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04), 0 4px 12px rgba(0, 0, 0, 0.02);
+  transition: box-shadow 0.3s ease;
+}
+
+.card:hover {
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.08);
+}
+
+/* Badges */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid var(--card-border);
+  border-radius: 100px;
+  font-size: 0.85rem;
+}
+
+/* Ambient Orbs */
+.ambient-orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(80px);
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.orb-1 {
+  width: 600px;
+  height: 600px;
+  background: radial-gradient(circle, rgba(20, 184, 166, 0.4) 0%, transparent 70%);
+  top: -200px;
+  right: -100px;
+}
+
+.orb-2 {
+  width: 500px;
+  height: 500px;
+  background: radial-gradient(circle, rgba(251, 191, 36, 0.35) 0%, transparent 70%);
+  bottom: 10%;
+  left: -150px;
+}
+
+/* Animations */
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-up {
+  animation: fadeUp 0.6s ease-out forwards;
+}
+
+@keyframes float {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  25% { transform: translate(50px, -50px) scale(1.1); }
+  50% { transform: translate(-30px, 30px) scale(0.95); }
+  75% { transform: translate(40px, 20px) scale(1.05); }
+}
+
+.animate-float {
+  animation: float 20s ease-in-out infinite;
+}
+
+.delay-100 { animation-delay: 100ms; }
+.delay-200 { animation-delay: 200ms; }
+.delay-300 { animation-delay: 300ms; }
+.delay-400 { animation-delay: 400ms; }
+
+/* Status Indicators */
+.status-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+}
+
+.status-dot.connected {
+  background-color: var(--primary);
+  box-shadow: 0 0 8px var(--primary-glow);
+}
+
+.status-dot.disconnected {
+  background-color: #ef4444;
+}
+
+/* Navigation */
+.nav-link {
+  color: var(--foreground-muted);
+  font-weight: 500;
+  transition: color 0.2s ease;
+}
+
+.nav-link:hover,
+.nav-link.active {
+  color: var(--primary);
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
