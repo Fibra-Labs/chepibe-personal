@@ -177,7 +177,7 @@ El sistema usa dos tablas SQLite:
 - **`whatsapp_sessions`** — Metadata de sesión y credenciales de Baileys (para reconexión)
 - **`whatsapp_session_keys`** — Keys del Signal Protocol (una fila por key, para descifrado de mensajes)
 
-Ninguna tabla almacena contenido de audio, transcripciones o resúmenes. Ver [docs/security.md](docs/security.md) para detalles.
+Ninguna tabla almacena contenido de audio, transcripciones o resúmenes. Ver [docs/seguridad.md](docs/seguridad.md) para detalles.
 
 ## Desarrollo
 

@@ -21,7 +21,7 @@ graph TB
     end
 
     subgraph DB["💾 Base de Datos (SQLite/Turso)"]
-        I["whatsapp_sessions<br/><br/>• id, phone_number<br/>• status, creds<br/>• qr_code, timestamps"]
+        I["whatsapp_sessions<br/><br/>• id, phone_number<br/>• status, creds<br/>• timestamps"]
         J["whatsapp_session_keys<br/><br/>• session_id, key_type<br/>• key_id, key_data<br/>• timestamps"]
     end
 
@@ -71,8 +71,8 @@ flowchart LR
     C --> D["Groq Llama"]
     D --> E["Resumen<br/>(variable local)"]
 
-    style A fill:#ffcccc
-    style E fill:#ffcccc
+    style A stroke:#ff0000
+    style E stroke:#ff0000
 ```
 
 | Paso | Servicio | Modelo | Latencia |
@@ -105,11 +105,11 @@ flowchart LR
         D --> E["Descartado"]
     end
 
-    style A fill:#ffcccc,stroke:#ff0000
-    style B fill:#ffcccc,stroke:#ff0000
-    style C fill:#ffcccc,stroke:#ff0000
-    style D fill:#ffcccc,stroke:#ff0000
-    style E fill:#ffcccc,stroke:#ff0000
+    style A stroke:#ff0000
+    style B stroke:#ff0000
+    style C stroke:#ff0000
+    style D stroke:#ff0000
+    style E stroke:#ff0000
 ```
 
 **Zero-Log**: Audio, transcripción y resumen existen solo como variables locales. Se envían directamente al chat del usuario y se descartan. **No se almacenan en DB ni se incluyen en logs.**
@@ -148,7 +148,6 @@ CREATE TABLE whatsapp_sessions (
   phone_number TEXT,
   status TEXT DEFAULT 'pending',
   creds TEXT,           -- JSON con BufferJSON.replacer
-  qr_code TEXT,
   created_at INTEGER,
   updated_at INTEGER
 );
@@ -216,7 +215,7 @@ El web llama al worker directamente via HTTP. No hay Redis ni pub/sub.
 | `/api/sessions` | GET | Listar todas las sesiones |
 | `/api/disconnect` | POST | Desconectar sesión |
 
-## Session Persistence
+## Persistencia de Sesiones
 
 Las sesiones sobreviven restarts del worker:
 

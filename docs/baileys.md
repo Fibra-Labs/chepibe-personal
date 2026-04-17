@@ -207,7 +207,7 @@ Message received → not notify/offline → skipping  (status messages, typing, 
 - Audio propio → Respuesta directa al chat del usuario
 - Audio de otro → Respuesta al chat del usuario con "📱 Mensaje de {número}:"
 
-## Disconnect Reason Codes
+## Códigos de Desconexión
 
 | Code | Nombre | Acción | Borrar Creds? |
 |------|--------|--------|---------------|
@@ -237,7 +237,7 @@ Baileys detecta PreKeys inválidas y las re-genera automáticamente. No requiere
 
 Causado por serialización incorrecta de Buffers. Solución: usar `BufferJSON.replacer`/`BufferJSON.reviver` consistentemente.
 
-## Troubleshooting
+## Solución de Problemas
 
 ### QR no genera
 

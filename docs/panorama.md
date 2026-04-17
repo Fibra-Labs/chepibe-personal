@@ -1,17 +1,17 @@
-# Che Pibe Personal - WhatsApp Audio Transcription Service
+# Che Pibe Personal - Servicio de Transcripción de Audio de WhatsApp
 
-## Overview
+## Panorama
 
 Che Pibe Personal es un servicio de transcripción de audio de WhatsApp diseñado con privacidad primaria. Conectás tu WhatsApp vía código QR, y cada nota de voz que recibís se transcribe y resume automáticamente. El resultado se envía a tu propio chat — sin que el sistema almacene **ningún contenido**.
 
-## What Is This?
+## Qué Es
 
 Che Pibe Personal consta de dos componentes principales:
 
 1. **Web App (SvelteKit 5)** - Interfaz web para escanear el código QR de WhatsApp y monitorear el estado de la conexión
 2. **WhatsApp Worker (Node.js)** - Procesa mensajes de audio entrantes vía Baileys, transcribe con Groq Whisper, resume con Groq Llama, y envía el resultado al usuario conectado
 
-## Key Features
+## Características Principales
 
 - **🔒 Privacy-First**: Cero almacenamiento de audio, transcripciones o contenido del usuario
 - **🤖 IA Integration**: Groq Whisper (`whisper-large-v3`) para transcripción, Llama (`llama-3.1-8b-instant`) para resúmenes
@@ -21,9 +21,9 @@ Che Pibe Personal consta de dos componentes principales:
 - **🐳 Docker-Ready**: Despliegue simple con Docker Compose
 - **☁️ Self-Hosted**: Tu código, tu infraestructura, tu control
 
-## Quick Start
+## Inicio Rápido
 
-### Prerequisitos
+### Requisitos Previos
 
 - Node.js ≥ 22
 - pnpm ≥ 9
@@ -75,7 +75,7 @@ chepibe-personal/
 └── .env.example             # Variables de entorno
 ```
 
-## Environment Variables
+## Variables de Entorno
 
 | Variable | Descripción | Default |
 |----------|-------------|---------|

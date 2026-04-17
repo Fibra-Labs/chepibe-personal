@@ -13,10 +13,10 @@ flowchart TB
     A -.->|"NUNCA"| D
     B -.->|"NUNCA SE GUARDA<br/>EN DISCO"| D
 
-    style D fill:#ffcccc,stroke:#ff0000,stroke-width:3px
-    style A fill:#ffcccc
-    style B fill:#ffcccc
-    style C fill:#ccffcc
+    style D stroke:#ff0000,stroke-width:3px
+    style A stroke:#ff0000
+    style B stroke:#ff0000
+    style C stroke:#00cc00
 ```
 
 **Lo que NUNCA sucede:**
@@ -66,7 +66,6 @@ id TEXT PRIMARY KEY,           -- ID único de sesión
 phone_number TEXT,             -- Número de teléfono
 status TEXT,                   -- Estado de conexión
 creds TEXT,                    -- Credenciales Baileys (BufferJSON.replacer)
-qr_code TEXT,                  -- QR temporal
 created_at INTEGER,
 updated_at INTEGER
 ```
@@ -260,65 +259,12 @@ La tabla `whatsapp_sessions` **no tiene columnas** para:
 
 La tabla `whatsapp_session_keys` solo contiene **material criptográfico** — no es legible ni contiene información del usuario.
 
-## Compliance
-
-### GDPR (Europe)
-
-- ✅ Derecho al olvido: No hay datos de contenido que borrar
-- ✅ Portabilidad: No hay datos de contenido que exportar
-- ✅ Breach notification: No hay datos de contenido sensibles que exponer
-
-### LGPD (Brasil)
-
-- ✅ Minimización: Solo datos necesarios para funcionamiento
-- ✅ Anonimización: Session IDs sin PII de contenido
-
-### CCPA (California)
-
-- ✅ No vendemos datos (literalmente no los tenemos)
-
-## Self-Hosting = Máxima Privacidad
-
-### Por qué Self-Hosted?
-
-| Aspecto | Servicio Cloud | Che Pibe Personal Self-Hosted |
-|---------|---------------|-----------------|
-| Datos | En servidores de terceros | En tu servidor |
-| Acceso | Empleados de la empresa | Solo vos |
-| Subpoena | Pueden entregar datos | No hay datos de contenido que entregar |
-| Auditoría | Código cerrado | Código abierto |
-| Keys | Controladas por el servicio | Vos controlás las Signal Keys |
-
-### Responsabilidades del Administrador
-
-1. **Seguridad del servidor**: Firewalls, actualizaciones, accesos
-2. **Backups**: De la base de datos (creds + signal keys, no contenido)
-3. **Logs del sistema**: Pueden contener IPs, timestamps, phone numbers
-4. **Groq**: Los audios pasan por Groq (ver política de privacidad de Groq)
-5. **.env**: Proteger las API keys, nunca commitear
-
-## Limitaciones de Privacidad
-
-### Lo que NO podemos garantizar
-
-1. **WhatsApp**: Meta/Facebook tiene los mensajes originales
-2. **Groq**: Los audios se procesan en infraestructura de Groq
-3. **Infraestructura**: Tu proveedor de VPS/cloud tiene acceso al servidor
-4. **Red**: TLS protege en tránsito, pero tu ISP ve metadata
-
-### Mitigaciones
-
-- **Groq**: No almacenan audios (según su política)
-- **Self-hosted**: Vos controlás la infraestructura
-- **Código abierto**: Podés auditar y modificar
-- **Zero-log**: No queda rastro de contenido en el sistema
-
 ## Reporte de Vulnerabilidades
 
 Si encontrás alguna forma en que Che Pibe Personal esté almacenando contenido de usuario que no debería:
 
 1. No crear issue público
-2. Enviar email a: security@[tudominio].com
+2. Enviar email a: fibra@fibra.dev
 3. Incluir reproducción paso a paso
 
 ---
