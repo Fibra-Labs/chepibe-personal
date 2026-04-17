@@ -1,91 +1,90 @@
 # Voz
 
-Privacy-first WhatsApp audio transcription via Groq AI. Self-hosted, zero logs, open source.
+Transcripción privada de audios de WhatsApp con IA de Groq. Self-hosted, cero logs, código abierto.
 
 [![License: ChePibe Personal Source](https://img.shields.io/badge/license-ChePibe%20Personal%20Source-blue)](./LICENSE)
 [![Docker](https://img.shields.io/badge/docker-ready-blue)](./docker-compose.yml)
 
-## Privacy
+## Privacidad
 
-This system holds **zero logs** of audio content or transcriptions. Audio is processed in-memory and immediately discarded. No transcripts, no recordings, no traces.
+Este sistema **no guarda ningún log** de contenido de audio ni transcripciones. El audio se procesa en memoria y se descarta inmediatamente. Sin transcripciones, sin grabaciones, sin rastros.
 
-## What It Does
+## Qué Hace
 
-Send or receive a voice note on WhatsApp → get back a transcription and concise summary in your own chat. Powered by Groq Whisper (transcription) and Llama (summarization). All in under 10 seconds.
+Enviá o recibí una nota de voz en WhatsApp → recibís la transcripción y un resumen conciso en tu propio chat. Potenciado por Groq Whisper (transcripción) y Llama (resumen). Todo en menos de 10 segundos.
 
-## 🚀 Quick Start (1 Command)
+## 🚀 Inicio Rápido (1 Comando)
 
-### Prerequisites
+### Requisitos
 
 - [Docker](https://docs.docker.com/get-docker/)
-- A [Groq API key](https://console.groq.com/) (free tier available)
+- Una [API key de Groq](https://console.groq.com/) (tier gratuito disponible)
 
-### Setup
+### Configuración
 
 ```bash
-# 1. Clone
+# 1. Clonar
 git clone https://github.com/fibra-labs/chepibe-personal.git
 cd chepibe-personal
 
-# 2. Install
+# 2. Instalar
 pnpm install
 
-# 3. Configure
+# 3. Configurar
 cp .env.example .env
 ```
 
-Edit `.env` — only two values are required:
+Editá `.env` — solo dos valores son necesarios:
 
 ```bash
-# Your WhatsApp number: country code + number, NO + sign
-# Argentina example: 5491171234567
-# US example: 14155552671
+# Tu número de WhatsApp: código de país + número, SIN el signo +
+# Ejemplo Argentina: 5491171234567
 ALLOWED_PHONE=5491171234567
 
-# Get yours at https://console.groq.com/
+# Obtenela en https://console.groq.com/
 GROQ_API_KEY=gsk_xxxxxxxx
 ```
 
-### Start
+### Iniciar
 
 ```bash
 pnpm start
 ```
 
-Open `http://localhost:3000` (or your custom `WEB_PORT`), scan the QR code with WhatsApp, and you're done. Every voice note you send or receive will be transcribed and summarized in your own chat.
+Abrí `http://localhost:3000` (o tu `WEB_PORT` custom), escaneá el código QR con WhatsApp, y listo. Cada nota de voz que envíes o recibas se transcribirá y resumirá en tu propio chat.
 
-### Stop
+### Detener
 
 ```bash
 pnpm stop
 ```
 
-### View Logs
+### Ver Logs
 
 ```bash
 pnpm logs
 ```
 
-## How It Works
+## Cómo Funciona
 
 ```
-Audio comes in → Baileys (WhatsApp) → Groq Whisper (transcription) → 
-Groq Llama (summary) → Sent back to YOUR chat
+Entra un audio → Baileys (WhatsApp) → Groq Whisper (transcripción) → 
+Groq Llama (resumen) → Se envía a TU chat
 ```
 
-- **Your own audios** → transcribed and sent back to you
-- **Audio from others** (groups, DMs) → transcribed with sender info, sent to you
-- Audio is processed **in-memory** and **never stored**
+- **Tus propios audios** → transcritos y enviados de vuelta a vos
+- **Audios de otros** (grupos, DMs) → transcritos con info del remitente, enviados a vos
+- El audio se procesa **en memoria** y **nunca se guarda**
 
-## Manual Setup (Without Docker)
+## Instalación Manual (Sin Docker)
 
-### Prerequisites
+### Requisitos
 
 - [Node.js](https://nodejs.org/) >= 22
 - [pnpm](https://pnpm.io/) >= 9
-- [Groq API key](https://console.groq.com/)
+- [API key de Groq](https://console.groq.com/)
 
-### Install & Run
+### Instalar y Ejecutar
 
 ```bash
 git clone https://github.com/fibra-labs/chepibe-personal.git
@@ -93,52 +92,49 @@ cd chepibe-personal
 
 pnpm install
 cp .env.example .env
-# Edit .env with ALLOWED_PHONE and GROQ_API_KEY
+# Editar .env con ALLOWED_PHONE y GROQ_API_KEY
 
 # Terminal 1: Worker
 pnpm dev:worker
 
 # Terminal 2: Web
-# Note: You must pass ALLOWED_PHONE explicitly as SvelteKit only loads .env from packages/web/
+# Nota: Hay que pasar ALLOWED_PHONE explícitamente ya que SvelteKit solo carga .env desde packages/web/
 ALLOWED_PHONE=$(grep ALLOWED_PHONE .env | cut -d '=' -f2) pnpm dev:web
 ```
 
-Open `http://localhost:5173` to scan the QR code.
+Abrí `http://localhost:5173` para escanear el código QR.
 
-**Note on Environment Variables:** The SvelteKit web app requires `ALLOWED_PHONE` to be available at runtime to display your configured account. In Docker, this is handled automatically. For local development, you must either:
-1. Pass it explicitly: `ALLOWED_PHONE=61497369759 pnpm dev:web`
-2. Copy `.env` to `packages/web/.env` (SvelteKit loads env from the package root)
+**Nota sobre Variables de Entorno:** SvelteKit requiere `ALLOWED_PHONE` disponible en runtime para mostrar tu cuenta configurada. En Docker se maneja automáticamente. Para desarrollo local, tenés que:
+1. Pasarlo explícitamente: `ALLOWED_PHONE=61497369759 pnpm dev:web`
+2. Copiar `.env` a `packages/web/.env` (SvelteKit carga env desde la raíz del paquete)
 
-## Environment Variables
+## Variables de Entorno
 
-| Variable | Required | Description | Default |
-|----------|----------|-------------|---------|
-| `ALLOWED_PHONE` | **Yes** | Your WhatsApp number (country code + number, no + sign) | — |
-| `GROQ_API_KEY` | **Yes** | Groq API key | — |
-| `GROQ_WHISPER_MODEL` | No | Whisper model for transcription | `whisper-large-v3` |
-| `GROQ_LLM_MODEL` | No | LLM model for summarization | `llama-3.1-8b-instant` |
-| `DATABASE_URL` | No | Database URL (local or Turso) | `file:./data/chepibe-personal.db` |
-| `DATABASE_PASSWORD` | No | Database password (Turso remote only) | — |
-| `PORT` | No | Worker internal port | `3001` |
-| `WEB_PORT` | No | Web port exposed to host (Docker) | `3000` |
-| `WORKER_PORT` | No | Worker port exposed to host (Docker) | `3001` |
-| `WORKER_API_URL` | No | Worker URL for web | `http://localhost:3001` |
-| `DEBUG` | No | Enable detailed Baileys logs | `false` |
+| Variable | Requerida | Descripción | Default |
+|----------|-----------|-------------|---------|
+| `ALLOWED_PHONE` | **Sí** | Tu número de WhatsApp (código de país + número, sin el +) | — |
+| `GROQ_API_KEY` | **Sí** | API key de Groq | — |
+| `GROQ_WHISPER_MODEL` | No | Modelo de Whisper para transcripción | `whisper-large-v3` |
+| `GROQ_LLM_MODEL` | No | Modelo LLM para resumen | `llama-3.1-8b-instant` |
+| `DATABASE_URL` | No | URL de la base de datos (local o Turso) | `file:./data/chepibe-personal.db` |
+| `DATABASE_PASSWORD` | No | Password de la base de datos (solo Turso remoto) | — |
+| `PORT` | No | Puerto interno del worker | `3001` |
+| `WEB_PORT` | No | Puerto web expuesto al host (Docker) | `3000` |
+| `WORKER_PORT` | No | Puerto del worker expuesto al host (Docker) | `3001` |
+| `WORKER_API_URL` | No | URL del worker para el web | `http://localhost:3001` |
+| `DEBUG` | No | Activar logs detallados de Baileys | `false` |
 
-**Note:** For `pnpm dev:web`, `ALLOWED_PHONE` must be passed explicitly (see Manual Setup section) as SvelteKit only auto-loads `.env` from the package directory, not the monorepo root.
+**Nota:** Para `pnpm dev:web`, `ALLOWED_PHONE` debe pasarse explícitamente (ver sección Instalación Manual) ya que SvelteKit solo auto-carga `.env` desde el directorio del paquete, no desde la raíz del monorepo.
 
-### ALLOWED_PHONE Format
+### Formato de ALLOWED_PHONE
 
-The `ALLOWED_PHONE` is your WhatsApp number in international format **without the + sign**:
+El `ALLOWED_PHONE` es tu número de WhatsApp en formato internacional **sin el signo +**:
 
-| Country | Format | Example |
-|---------|--------|---------|
-| Argentina | 54 + area + number | `5491171234567` |
-| US/Canada | 1 + area + number | `14155552671` |
-| Brazil | 55 + area + number | `5511912345678` |
-| Spain | 34 + number | `34612345678` |
+| País | Formato | Ejemplo |
+|------|---------|---------|
+| Argentina | 54 + área + número | `5491171234567` |
 
-## Architecture
+## Arquitectura
 
 ```
 ┌─────────────────────┐       ┌─────────────────────────┐
@@ -146,8 +142,8 @@ The `ALLOWED_PHONE` is your WhatsApp number in international format **without th
 │   Host: WEB_PORT    │◄─────►│   Host: WORKER_PORT     │
 │   Container: 3000   │       │   Container: 3001       │
 │                     │       │                         │
-│  • QR code display  │       │  • Baileys (WhatsApp)   │
-│  • Connection status│       │  • Groq Whisper          │
+│  • Código QR        │       │  • Baileys (WhatsApp)   │
+│  • Estado conexión  │       │  • Groq Whisper          │
 │  • en Español       │       │  • Groq Llama            │
 └─────────┬───────────┘       └──────────┬──────────────┘
           │                              │
@@ -158,74 +154,56 @@ The `ALLOWED_PHONE` is your WhatsApp number in international format **without th
     └──────────┘                   └──────────────┘
 ```
 
-No Redis. No external services besides Groq and WhatsApp.
+Sin Redis. Sin servicios externos además de Groq y WhatsApp.
 
-## Project Structure
+## Estructura del Proyecto
 
 ```
 chepibe-personal/
 ├── packages/
-│   ├── shared/              # DB schema, types, migrations
-│   ├── whatsapp-worker/     # Baileys + Groq worker
-│   └── web/                 # SvelteKit 5 frontend (en Español)
-├── docs/                    # Architecture, Baileys, Security docs
-├── docker-compose.yml       # Production (1 command start)
-├── .env.example             # Required env vars
-└── package.json             # pnpm workspace
+│   ├── shared/              # Esquema DB, tipos, migraciones
+│   ├── whatsapp-worker/     # Worker de Baileys + Groq
+│   └── web/                 # Frontend SvelteKit 5 (en Español)
+├── docs/                    # Arquitectura, Baileys, Seguridad
+├── docker-compose.yml       # Producción (1 comando para iniciar)
+├── .env.example             # Variables de entorno requeridas
+└── package.json             # Workspace de pnpm
 ```
 
-## Database
+## Base de Datos
 
-The system uses two SQLite tables:
+El sistema usa dos tablas SQLite:
 
-- **`whatsapp_sessions`** — Session metadata and Baileys credentials (for reconnection)
-- **`whatsapp_session_keys`** — Signal Protocol keys (one row per key, for message decryption)
+- **`whatsapp_sessions`** — Metadata de sesión y credenciales de Baileys (para reconexión)
+- **`whatsapp_session_keys`** — Keys del Signal Protocol (una fila por key, para descifrado de mensajes)
 
-Neither table stores audio content, transcriptions, or summaries. See [docs/security.md](docs/security.md) for details.
+Ninguna tabla almacena contenido de audio, transcripciones o resúmenes. Ver [docs/security.md](docs/security.md) para detalles.
 
-## Self-Hosting for Production
-
-### Using Turso (Remote SQLite)
-
-For multi-instance or cloud deployment, use [Turso](https://turso.tech/) instead of local SQLite:
-
-```bash
-turso db create voz
-turso db show voz --url          # → DATABASE_URL
-turso db tokens create voz      # → DATABASE_PASSWORD
-```
-
-Set both in your `.env` or docker-compose environment.
-
-### Persistent Data with Docker
-
-The docker-compose mounts a local `./data` directory at `/data` for the SQLite database (`data/chepibe-personal.db`). This survives container restarts and rebuilds.
-
-## Development
+## Desarrollo
 
 ```bash
 pnpm install
 
-# Dev mode (separate terminals)
+# Modo dev (terminales separadas)
 pnpm dev:worker
 pnpm dev:web
 
-# Build all
+# Build completo
 pnpm build
 
-# Database
-pnpm db:generate     # Generate migrations
+# Base de datos
+pnpm db:generate     # Generar migraciones
 pnpm db:studio       # Drizzle Studio
 ```
 
-## License
+## Licencia
 
-GNU Affero General Public License v3 — see [LICENSE](./LICENSE).
+GNU Affero General Public License v3 — ver [LICENSE](./LICENSE).
 
-This project is licensed under the AGPLv3, a strong copyleft license that guarantees your freedom to use, study, modify, and share this software — provided that if you run a modified version over a network, you must make the source code of your modifications available to your users under the same terms. The AGPL ensures source code transparency for all network-facing modifications.
+Este proyecto está licenciado bajo AGPLv3, una licencia copyleft fuerte que garantiza tu libertad de usar, estudiar, modificar y compartir este software — con la condición de que si ejecutás una versión modificada en una red, debés poner el código fuente de tus modificaciones a disposición de tus usuarios bajo los mismos términos. AGPL asegura transparencia del código fuente para todas las modificaciones que se exponen en red.
 
-**Commercial use** — If you'd like to use this software commercially without the AGPL's source code sharing requirements, a separate commercial license is available. Contact [fibra@fibra.dev](mailto:fibra@fibra.dev).
+**Uso comercial** — Si querés usar este software comercialmente sin los requisitos de compartición de código fuente de AGPL, hay una licencia comercial separada disponible. Contactá a [fibra@fibra.dev](mailto:fibra@fibra.dev).
 
-## Contributing
+## Contribuir
 
-Pull requests welcome. For major changes, open an issue first.
+Pull requests bienvenidos. Para cambios mayores, abrí un issue primero.
