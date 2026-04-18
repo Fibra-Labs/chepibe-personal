@@ -1,4 +1,5 @@
 import { BufferJSON, type SignalDataSet, type SignalDataTypeMap, type SignalKeyStoreWithTransaction } from '@whiskeysockets/baileys';
+import type { Client, LibsqlError } from '@libsql/client';
 import type { Logger } from 'pino';
 import type { Db } from '@chepibe-personal/shared';
 import { whatsappSessionKeys, eq, and, inArray } from '@chepibe-personal/shared';
@@ -10,18 +11,29 @@ interface KeyMutation {
   operation: 'upsert' | 'delete';
 }
 
+function isDbMovedError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  const e = err as Record<string, unknown>;
+  return e.code === 'SQLITE_READONLY_DBMOVED' || e.rawCode === 1032 ||
+    (typeof e.message === 'string' && e.message.includes('readonly database'));
+}
+
+const MAX_FLUSH_RETRIES = 3;
+
 export class SqliteKeyStore implements SignalKeyStoreWithTransaction {
   private cache = new Map<string, unknown>();
   private mutationQueue: KeyMutation[] = [];
   private flushInterval?: NodeJS.Timeout;
   private isFlushing = false;
   private flushPromise?: Promise<void>;
+  private consecutiveDbMovedErrors = 0;
   private readonly FLUSH_INTERVAL_MS = 2000;
   private readonly MAX_QUEUE_SIZE = 1000;
 
   constructor(
     private sessionId: string,
     private db: Db,
+    private client: Client,
     private logger: Logger,
   ) {
     this.flushInterval = setInterval(() => {
@@ -206,16 +218,44 @@ export class SqliteKeyStore implements SignalKeyStoreWithTransaction {
         }
       }
 
+      this.consecutiveDbMovedErrors = 0;
       this.logger.debug(
         { sessionId: this.sessionId, total: batch.length, upserts: upserts.length, deletes: deletes.length },
         'Flushed key mutations',
       );
     } catch (error) {
       this.mutationQueue.unshift(...batch);
-      this.logger.error(
-        { err: error, sessionId: this.sessionId, queueSize: this.mutationQueue.length },
-        'Flush failed, will retry',
-      );
+
+      if (isDbMovedError(error)) {
+        this.consecutiveDbMovedErrors++;
+        this.logger.error(
+          { err: error, sessionId: this.sessionId, queueSize: this.mutationQueue.length, attempt: this.consecutiveDbMovedErrors },
+          'Flush failed — database file was moved/replaced (SQLITE_READONLY_DBMOVED)',
+        );
+
+        if (this.consecutiveDbMovedErrors <= MAX_FLUSH_RETRIES) {
+          try {
+            this.logger.info({ sessionId: this.sessionId, attempt: this.consecutiveDbMovedErrors }, 'Reopening database connection');
+            this.client.execute('PRAGMA journal_mode=DELETE');
+          } catch {
+            this.logger.error({ sessionId: this.sessionId }, 'Failed to reopen database connection');
+          }
+        }
+
+        if (this.consecutiveDbMovedErrors > MAX_FLUSH_RETRIES) {
+          this.logger.fatal(
+            { sessionId: this.sessionId, queueSize: this.mutationQueue.length },
+            'Exceeded max DBMOVED retries — discarding queued mutations to prevent crash loop',
+          );
+          this.mutationQueue = [];
+          this.consecutiveDbMovedErrors = 0;
+        }
+      } else {
+        this.logger.error(
+          { err: error, sessionId: this.sessionId, queueSize: this.mutationQueue.length },
+          'Flush failed, will retry',
+        );
+      }
     } finally {
       this.isFlushing = false;
     }

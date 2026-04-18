@@ -1,2 +1,2 @@
-export { whatsappSessions, type WhatsappSession, type NewWhatsappSession } from './schema.js';
-export { createDb, type Db, eq } from './client.js';
+export { whatsappSessions, type WhatsappSession, type NewWhatsappSession, whatsappSessionKeys } from './schema.js';
+export { createDb, type Db, type DbWithClient, eq, and, inArray } from './client.js';

@@ -47,7 +47,7 @@ async function main() {
     }
   }
 
-  const db = createDb({ url: DATABASE_URL, authToken: DATABASE_PASSWORD });
+  const { db, client } = await createDb({ url: DATABASE_URL, authToken: DATABASE_PASSWORD });
   
   logger.info('Running database migrations...');
   const require = createRequire(import.meta.url);
@@ -58,7 +58,7 @@ async function main() {
 
   const groqClient = new GroqClient(GROQ_API_KEY, GROQ_WHISPER_MODEL, GROQ_LLM_MODEL, logger);
   const audioHandler = new AudioHandler(groqClient, logger);
-  const connectionManager = new BaileysConnectionManager(db, audioHandler, logger, ALLOWED_PHONE);
+  const connectionManager = new BaileysConnectionManager(db, client, audioHandler, logger, ALLOWED_PHONE);
 
   logger.info('Restoring sessions from database...');
   await connectionManager.restoreSessions();
