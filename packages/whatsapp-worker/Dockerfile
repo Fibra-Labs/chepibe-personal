@@ -16,8 +16,12 @@ COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
 COPY .npmrc ./
 COPY packages/shared/package.json ./packages/shared/
 COPY packages/whatsapp-worker/package.json ./packages/whatsapp-worker/
+COPY packages/whatsapp-worker/patch-baileys.sh ./packages/whatsapp-worker/
 
 RUN pnpm install --frozen-lockfile
+
+# Apply patches to Baileys (fixes rc.9 known bugs)
+RUN chmod +x ./packages/whatsapp-worker/patch-baileys.sh && ./packages/whatsapp-worker/patch-baileys.sh
 
 # =============================================================================
 # Stage 2: Builder
@@ -46,7 +50,12 @@ RUN pnpm build:shared
 COPY packages/whatsapp-worker/src ./packages/whatsapp-worker/src
 COPY packages/whatsapp-worker/tsconfig.json ./packages/whatsapp-worker/
 COPY packages/whatsapp-worker/tsup.config.ts ./packages/whatsapp-worker/
+COPY packages/whatsapp-worker/patch-baileys.sh ./packages/whatsapp-worker/
 COPY scripts ./scripts
+
+# Apply patches to Baileys
+RUN chmod +x ./packages/whatsapp-worker/patch-baileys.sh && ./packages/whatsapp-worker/patch-baileys.sh
+
 ENV NODE_ENV=production
 RUN pnpm build:worker
 

@@ -1,8 +1,10 @@
-# Voz
+# ChePibe - Personal
 
-Transcripción privada de audios de WhatsApp con IA de Groq. Self-hosted, cero logs, código abierto.
+Transcripción privada de audios de WhatsApp con IA. Self-hosted, cero logs, código abierto.
 
-[![License: ChePibe Personal Source](https://img.shields.io/badge/license-ChePibe%20Personal%20Source-blue)](./LICENSE)
+[Che Pibe](https://personal.chepibe.ai)
+
+[![License: AGPL 3.0](https://img.shields.io/badge/license-ChePibe%20Personal%20Source-blue)](./LICENSE)
 [![Docker](https://img.shields.io/badge/docker-ready-blue)](./docker-compose.yml)
 
 ## Privacidad
@@ -11,7 +13,7 @@ Este sistema **no guarda ningún log** de contenido de audio ni transcripciones.
 
 ## Qué Hace
 
-Enviá o recibí una nota de voz en WhatsApp → recibís la transcripción y un resumen conciso en tu propio chat. Potenciado por Groq Whisper (transcripción) y Llama (resumen). Todo en menos de 10 segundos.
+Enviá o recibí una nota de voz en WhatsApp → recibís la transcripción y un resumen en tu propio chat. Potenciado por Groq Whisper (transcripción) y Llama (resumen). En menos de 5 segundos.
 
 ## 🚀 Inicio Rápido (1 Comando)
 
@@ -118,7 +120,6 @@ Abrí `http://localhost:5173` para escanear el código QR.
 | `GROQ_LLM_MODEL` | No | Modelo LLM para resumen | `llama-3.1-8b-instant` |
 | `DATABASE_URL` | No | URL de la base de datos (local o Turso) | `file:./data/chepibe-personal.db` |
 | `DATABASE_PASSWORD` | No | Password de la base de datos (solo Turso remoto) | — |
-| `PORT` | No | Puerto interno del worker | `3001` |
 | `WEB_PORT` | No | Puerto web expuesto al host (Docker) | `3000` |
 | `WORKER_PORT` | No | Puerto del worker expuesto al host (Docker) | `3001` |
 | `WORKER_API_URL` | No | URL del worker para el web | `http://localhost:3001` |
@@ -193,6 +194,7 @@ pnpm build
 
 # Base de datos
 pnpm db:generate     # Generar migraciones
+pnpm db:migrate     # Ejecutar migraciones
 pnpm db:studio       # Drizzle Studio
 ```
 
