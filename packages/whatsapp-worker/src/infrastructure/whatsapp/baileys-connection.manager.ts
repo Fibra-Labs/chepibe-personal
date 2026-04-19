@@ -473,8 +473,16 @@ export class BaileysConnectionManager {
         if (!m.messages?.length) return;
 
         if (m.type !== 'notify' && !m.requestId) {
-            this.logger.info({ sessionId, type: m.type }, 'Message received → not notify/offline → skipping');
-            return;
+            const hasAudio = m.messages?.some((msg: any) =>
+                msg.message?.audioMessage || msg.message?.pttMessage
+            );
+
+            if (!hasAudio) {
+                this.logger.debug({ sessionId, type: m.type }, 'Message received → not notify/offline → skipping (no audio)');
+                return;
+            }
+
+            this.logger.info({ sessionId, type: m.type, messageCount: m.messages?.length }, 'Processing append messages with audio');
         }
 
         for (const message of m.messages) {
