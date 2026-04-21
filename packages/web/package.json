@@ -2,6 +2,7 @@
   "name": "@chepibe-personal/web",
   "version": "0.1.0",
   "private": true,
+  "license": "AGPL-3.0",
   "description": "SvelteKit frontend — QR code display, connection status, privacy-first",
   "scripts": {
     "dev": "vite dev",

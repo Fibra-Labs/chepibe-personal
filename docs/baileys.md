@@ -263,6 +263,33 @@ Causado por serialización incorrecta de Buffers. Solución: usar `BufferJSON.re
 - Verificar que creds se guardaron en `whatsapp_sessions`
 - Si la DB se borró, requiere re-escanear QR
 
+## Patches (Solución a Bugs Conocidos)
+
+Baileys v7.0.0-rc.9, la versión actual de esta librería, contiene errores conocidos que hacen que la conexión con WhatsApp sea inestable o inutilizable. Para solucionarlo, `packages/whatsapp-worker/patch-baileys.sh` aplica automáticamente los siguientes cambios sobre la librería en `node_modules` después de ejecutar `pnpm install`.
+
+### Parche 1: Eliminar `lidDbMigrated` del payload
+**Archivo:** `lib/Utils/validate-connection.js`  
+**Problema:** La propiedad booleana `lidDbMigrated` es agregada por Baileys, pero no es reconocida correctamente por el servidor y puede causar rechazo de autenticación o sincronización.  
+**Solución:** Se elimina la línea que asigna `false` a dicha propiedad.
+
+### Parche 2: Eliminar `await` en `noise.finishInit()`
+**Archivo:** `lib/Socket/socket.js`  
+**Problema:** La función `noise.finishInit()` es síncrona, pero el código la envuelve en `await`. Esto genera una condición de carrera (race condition) que interrumpe el handshake y resulta en desconexiones inmediatas o ciclos de reconexión erráticos.  
+**Solución:** Se reemplaza `await noise.finishInit();` por `noise.finishInit();`.
+
+### Parche 3: Cambiar `Platform.WEB` por `Platform.MACOS`
+**Archivo:** `lib/Utils/validate-connection.js`  
+**Problema:** WhatsApp despreció (deprecated) la identificación `WEB` en favor de `MACOS` o `IOS` para la mayoría de sus flujos de autenticación modernos. Enviar `WEB` puede activar comprobaciones de seguridad y provocar desconexiones espontáneas.  
+**Solución:** Se reemplaza cualquier referencia a `Platform.WEB` por `Platform.MACOS`.
+
+### Integración en Docker
+El script se ejecuta automáticamente en el `Dockerfile` del worker:
+```dockerfile
+RUN chmod +x ./packages/whatsapp-worker/patch-baileys.sh && \
+    ./packages/whatsapp-worker/patch-baileys.sh
+```
+
+
 ## Recursos
 
 - [Baileys GitHub](https://github.com/WhiskeySockets/Baileys)

@@ -498,7 +498,23 @@ export class BaileysConnectionManager {
             const senderIsLid = (isGroup ? participant : sender)?.includes('@lid');
             const participantSource = isGroup ? participant : sender;
             const rawNumber = (participantSource || sender).split('@')[0].split(':')[0];
-            const phoneNumber = (isFromMe || senderIsLid) ? (session.phoneNumber || rawNumber) : rawNumber;
+
+            let phoneNumber: string;
+            if (isFromMe) {
+                phoneNumber = session.phoneNumber || rawNumber;
+            } else {
+                phoneNumber = rawNumber;
+            }
+
+            this.logger.info({
+                sender,
+                isGroup,
+                participant,
+                isFromMe,
+                rawNumber,
+                phoneNumber,
+                sessionPhone: session.phoneNumber,
+            }, 'Sender detection');
 
             const audioMessage = message.message.audioMessage || message.message.pttMessage;
             if (isFromMe && !audioMessage) {

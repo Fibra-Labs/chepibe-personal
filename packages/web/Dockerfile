@@ -6,13 +6,13 @@ ARG ALLOWED_PHONE
 # =============================================================================
 # Stage 1: Dependencies
 # =============================================================================
-FROM node:24-alpine AS deps
+FROM node:25-slim AS deps
 
 WORKDIR /app
 
-RUN apk add --no-cache python3 make g++
+RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ && rm -rf /var/lib/apt/lists/*
 
-RUN corepack enable && corepack prepare pnpm@latest --activate
+RUN npm install -g pnpm@latest
 
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
 COPY .npmrc ./
@@ -24,12 +24,12 @@ RUN pnpm install --frozen-lockfile
 # =============================================================================
 # Stage 2: Builder
 # =============================================================================
-FROM node:24-alpine AS builder
+FROM node:25-slim AS builder
 ARG ALLOWED_PHONE
 
 WORKDIR /app
 
-RUN corepack enable && corepack prepare pnpm@latest --activate
+RUN npm install -g pnpm@latest
 
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
 COPY .npmrc ./
@@ -58,14 +58,14 @@ RUN pnpm build:web
 # =============================================================================
 # Stage 3: Production Runner
 # =============================================================================
-FROM node:24-alpine AS runner
+FROM node:25-slim AS runner
 
 WORKDIR /app
 
-RUN apk add --no-cache dumb-init
+RUN apt-get update && apt-get install -y --no-install-recommends dumb-init && rm -rf /var/lib/apt/lists/*
 
-RUN addgroup --system --gid 1001 nodejs && \
-    adduser --system --uid 1001 -G nodejs -D -H -h /app nodejs
+RUN groupadd --system --gid 1001 nodejs && \
+    useradd --system --uid 1001 --gid nodejs --home-dir /app --no-create-home nodejs
 
 COPY --from=deps /app/package.json ./
 COPY --from=deps /app/node_modules ./node_modules

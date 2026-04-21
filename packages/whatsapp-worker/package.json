@@ -2,6 +2,7 @@
   "name": "@chepibe-personal/whatsapp-worker",
   "version": "0.1.0",
   "private": true,
+  "license": "AGPL-3.0",
   "description": "WhatsApp Baileys worker — receives audio, transcribes via Groq, sends back summary",
   "main": "./dist/main.js",
   "scripts": {

@@ -2,6 +2,7 @@
   "name": "chepibe-personal",
   "version": "0.1.0",
   "private": true,
+  "license": "AGPL-3.0",
   "description": "Privacy-first WhatsApp audio transcription via Groq. Self-hosted, zero logs, open source.",
   "scripts": {
     "dev:web": "node scripts/load-env.js pnpm --filter @chepibe-personal/web dev",
@@ -23,7 +24,7 @@
     "typescript": "^5.9.3"
   },
   "engines": {
-    "node": ">=22",
+    "node": ">=25",
     "pnpm": ">=9"
   }
 }

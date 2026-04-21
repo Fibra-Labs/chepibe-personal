@@ -4,7 +4,7 @@ Transcripción privada de audios de WhatsApp con IA. Self-hosted, cero logs, có
 
 [Che Pibe](https://personal.chepibe.ai)
 
-[![License: AGPL 3.0](https://img.shields.io/badge/license-ChePibe%20Personal%20Source-blue)](./LICENSE)
+[![License: AGPL 3.0](https://img.shields.io/badge/license-AGPL--3.0-blue)](./LICENSE)
 [![Docker](https://img.shields.io/badge/docker-ready-blue)](./docker-compose.yml)
 
 ## Privacidad
@@ -82,7 +82,7 @@ Groq Llama (resumen) → Se envía a TU chat
 
 ### Requisitos
 
-- [Node.js](https://nodejs.org/) >= 22
+- [Node.js](https://nodejs.org/) >= 25
 - [pnpm](https://pnpm.io/) >= 9
 - [API key de Groq](https://console.groq.com/)
 

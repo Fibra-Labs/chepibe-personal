@@ -7,4 +7,4 @@ if [ -d "/data" ]; then
 fi
 
 # Drop to non-root user and exec the main process
-exec su-exec nodejs "$@"
+exec gosu nodejs "$@"

@@ -25,7 +25,7 @@ Che Pibe Personal consta de dos componentes principales:
 
 ### Requisitos Previos
 
-- Node.js ≥ 22
+- Node.js ≥ 25
 - pnpm ≥ 9
 - Groq API key
 
@@ -93,4 +93,8 @@ chepibe-personal/
 
 ## Licencia
 
-ChePibe Personal Source License - uso personal gratuito, comercial requiere licencia separada.
+GNU Affero General Public License v3 — ver [LICENSE](./LICENSE).
+
+Este proyecto está licenciado bajo AGPLv3, una licencia copyleft fuerte que garantiza tu libertad de usar, estudiar, modificar y compartir este software — con la condición de que si ejecutás una versión modificada en una red, debés poner el código fuente de tus modificaciones a disposición de tus usuarios bajo los mismos términos.
+
+**¿Querés una licencia diferente?** Si necesitás una licencia sin los requisitos de copyleft de AGPL (por ejemplo, para uso comercial cerrado), contactá a [fibra@fibra.dev](mailto:fibra@fibra.dev).
