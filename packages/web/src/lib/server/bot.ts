@@ -59,11 +59,11 @@ function startBot(): Promise<void> {
 
 export function getBot(): ChepibeBot {
 	if (_bot) return _bot;
-	startBot();
+	void startBot();
 	throw new Error('Bot is starting — wait for startup to complete before using getBot()');
 }
 
 export function awaitBot(): Promise<ChepibeBot> {
-	startBot();
+	void startBot();
 	return _bot ? Promise.resolve(_bot) : _startPromise!.then(() => _bot!);
 }

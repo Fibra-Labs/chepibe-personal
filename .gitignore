@@ -17,3 +17,4 @@ build/
 .playwright-mcp/
 .opencode/
 .idea/
+.sisyphus
