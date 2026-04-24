@@ -216,7 +216,7 @@ DATABASE_PASSWORD=
 ### 3. Docker
 
 - Contenedores corren como usuario no-root (`USER node`)
-- Puertos de servicio configurables via `WEB_PORT` y `WORKER_PORT` (defaults: 3000, 3001)
+- Puerto del servicio configurable via `WEB_PORT` (default: 3000)
 - No shell accesible
 
 ### 4. No ACKs

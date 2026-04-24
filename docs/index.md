@@ -6,10 +6,10 @@ Che Pibe Personal es un servicio de transcripción de audio de WhatsApp diseñad
 
 ## Qué Es
 
-Che Pibe Personal consta de dos componentes principales:
+Che Pibe Personal consta de dos componentes:
 
-1. **Web App (SvelteKit 5)** - Interfaz web para escanear el código QR de WhatsApp y monitorear el estado de la conexión
-2. **WhatsApp Worker (Node.js)** - Procesa mensajes de audio entrantes vía Baileys, transcribe con Groq Whisper, resume con Groq Llama, y envía el resultado al usuario conectado
+1. **Web App (SvelteKit 5)** — Interfaz web para escanear el código QR de WhatsApp, monitorear el estado de conexión y exponer las rutas del servidor.
+2. **ChepibeBot (Librería Node.js)** — Procesa mensajes de audio entrantes vía Baileys, transcribe con Groq Whisper, resume con Groq Llama, y envía el resultado al usuario conectado. Corre embebido dentro del proceso SvelteKit.
 
 ## Características Principales
 
@@ -17,7 +17,7 @@ Che Pibe Personal consta de dos componentes principales:
 - **🤖 IA Integration**: Groq Whisper (`whisper-large-v3`) para transcripción, Llama (`llama-3.1-8b-instant`) para resúmenes
 - **🇦🇷 Optimizado para Argentina**: Transcripción y resúmenes en español argentino
 - **📱 WhatsApp Nativo**: Integración vía Baileys v7 - sin APIs oficiales
-- **🔁 Resiliente**: Sesiones sobreviven restarts del worker (creds + signal keys persistidos en SQLite)
+- **🔁 Resiliente**: Sesiones sobreviven restarts (creds + signal keys persistidos en SQLite)
 - **🐳 Docker-Ready**: Despliegue simple con Docker Compose
 - **☁️ Self-Hosted**: Tu código, tu infraestructura, tu control
 
@@ -40,8 +40,7 @@ pnpm install
 cp .env.example .env
 # Editar .env con tu GROQ_API_KEY
 
-# Iniciar servicios (en terminales separados)
-pnpm dev:worker
+# Iniciar servicio
 pnpm dev:web
 ```
 
@@ -68,8 +67,8 @@ El audio se procesa **en memoria** y se descarta inmediatamente. No hay base de 
 chepibe-personal/
 ├── packages/
 │   ├── shared/              # Esquema DB, migraciones, tipos
-│   ├── whatsapp-worker/     # Worker de Baileys + Groq
-│   └── web/                 # Frontend SvelteKit 5
+│   ├── whatsapp-worker/     # Librería ChepibeBot (Baileys + Groq)
+│   └── web/                 # Frontend SvelteKit 5 + servidor embebido
 ├── docs/                    # Documentación
 ├── docker-compose.yml       # Producción
 └── .env.example             # Variables de entorno
@@ -84,10 +83,7 @@ chepibe-personal/
 | `GROQ_API_KEY` | API key de Groq | - |
 | `GROQ_WHISPER_MODEL` | Modelo de transcripción | `whisper-large-v3` |
 | `GROQ_LLM_MODEL` | Modelo de resumen | `llama-3.1-8b-instant` |
-| `PORT` | Puerto interno del worker | `3001` |
 | `WEB_PORT` | Puerto del web expuesto al host (Docker) | `3000` |
-| `WORKER_PORT` | Puerto del worker expuesto al host (Docker) | `3001` |
-| `WORKER_API_URL` | URL del worker para el web | `http://localhost:3001` |
 | `DEBUG` | Activar logs detallados de Baileys | `false` |
 | `NODE_ENV` | Ambiente | `development` |
 

@@ -1,6 +1,6 @@
 import Groq from 'groq-sdk';
 import type { Logger } from 'pino';
-import type { TranscriptionResult } from '../../types.js';
+import type { TranscriptionResult } from '../../types/transcription-result.js';
 
 function getExtensionFromMimetype(mimetype: string): string {
   switch (mimetype) {

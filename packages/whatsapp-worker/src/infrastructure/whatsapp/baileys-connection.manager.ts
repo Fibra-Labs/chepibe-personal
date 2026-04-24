@@ -13,7 +13,8 @@ import type { Client } from '@libsql/client';
 import type { Logger } from 'pino';
 import type { Db } from '@chepibe-personal/shared';
 import { eq, whatsappSessionKeys, whatsappSessions } from '@chepibe-personal/shared';
-import type { BaileysSession, SessionStatus } from '../../types.js';
+import type { BaileysSession } from '../../types/baileys-session.js';
+import type { SessionStatus } from '../../types/session-status.js';
 import type { AudioHandler } from '../groq/audio-handler.js';
 import { SqliteKeyStore } from './signal-key-store.js';
 

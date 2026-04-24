@@ -4,6 +4,9 @@ import { defineConfig } from "vite";
 
 export default defineConfig({
   plugins: [tailwindcss(), sveltekit()],
+  ssr: {
+    external: ["@libsql/client", "libsql", "@chepibe-personal/whatsapp-worker", "pino", "pino-pretty"],
+  },
   server: {
     port: 5173,
     strictPort: false,

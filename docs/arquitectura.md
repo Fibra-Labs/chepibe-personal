@@ -7,14 +7,11 @@ graph TB
     subgraph Usuario["👤 USUARIO (WhatsApp App)"]
     end
 
-    subgraph Worker["⚙️ WhatsApp Worker"]
+    subgraph App["⚙️ Aplicación (SvelteKit + ChepibeBot)"]
         A["Baileys<br/>(WebSocket)"] --> B["Descargar Audio"]
         B --> C["Groq Whisper<br/>(Transcripción)"]
         C --> D["Groq Llama<br/>(Resumen)"]
         D --> E["Baileys<br/>(Enviar al USUARIO)"]
-    end
-
-    subgraph Web["🌐 Web App (SvelteKit 5)"]
         F["Inicio (/)"]
         G["QR Code (/qr)"]
         H["Estado (/status)"]
@@ -27,8 +24,7 @@ graph TB
 
     Usuario -->|"Nota de Voz"| A
     E -->|"Respuesta al chat"| Usuario
-    A <-->|"HTTP API"| Web
-    I <-->|"Persistencia"| A
+    A <-->|"Persistencia"| I
     J <-->|"Signal Keys"| A
 ```
 
@@ -58,7 +54,7 @@ sequenceDiagram
 - Solo `audioMessage` o `pttMessage`
 - Mensajes propios (`fromMe`) con audio también se procesan
 - **Deduplicación**: Cache 24h con key `${phoneNumber}:${msgId}`
-- **LID handling**: Si el remitente es `@lid`, se usa el `phoneNumber` de la sesión
+- **LID handling**: Si el remitente es `@lid`, se usa el `phoneNumber` de la sesión del usuario conectado
 
 > **Nota**: Los filtros solo usan IDs de mensaje para deduplicación. **Ningún contenido de mensaje se almacena.**
 
@@ -90,8 +86,8 @@ flowchart LR
 
 ```mermaid
 flowchart TB
-    A["Audio de otro chat"] --> B["📱 Mensaje de {número}<br/>Transcripción + Resumen"]
-    C["Audio propio"] --> D["🎤 Transcripción<br/>📝 Resumen"]
+    A["Audio de otro chat"] --> B["📱 Mensaje de {número}\nTranscripción + Resumen"]
+    C["Audio propio"] --> D["🎤 Transcripción\n📝 Resumen"]
     B --> E["Tu propio chat"]
     D --> E
 ```
@@ -202,26 +198,47 @@ CREATE TABLE whatsapp_session_keys (
 
 Esto es guardado automáticamente por Baileys y no contiene texto ni contenido de los mensajes.
 
-## Comunicación Web↔Worker
+## ChepibeBot — Librería Embebida
 
-### API REST (Worker)
+El `whatsapp-worker` ya no es un proceso separado. Es una librería (`ChepibeBot`) que se ejecuta dentro del proceso SvelteKit.
 
-El web llama al worker directamente via HTTP. No hay Redis ni pub/sub.
+### API Pública
 
-| Endpoint | Método | Descripción |
-|----------|--------|-------------|
-| `/api/qr` | GET | Generar nuevo código QR (reusa sesión conectada si existe) |
-| `/api/status` | GET | Estado de conexiones activas |
-| `/api/sessions` | GET | Listar todas las sesiones |
-| `/api/disconnect` | POST | Desconectar sesión |
+```typescript
+import { ChepibeBot } from '@chepibe-personal/whatsapp-worker';
+
+const bot = new ChepibeBot({
+  groqApiKey: env.GROQ_API_KEY,
+  allowedPhone: env.ALLOWED_PHONE,
+  databaseUrl: env.DATABASE_URL,
+  // ... opciones adicionales
+});
+
+await bot.start();
+
+bot.getStatus();      // Estado de conexión
+bot.getQR();           // Generar QR (o devolver alreadyConnected)
+bot.disconnect(id);  // Desconectar sesión
+await bot.destroy();  // Graceful shutdown
+```
+
+### Eventos
+
+```typescript
+bot.on('QR_READY', ({ sessionId, qrCode }) => { ... });
+bot.on('CONNECTED', ({ sessionId, phoneNumber }) => { ... });
+bot.on('DISCONNECTED', ({ sessionId, reason }) => { ... });
+```
+
+La UI del web accede al estado del bot directamente desde los `+page.server.ts` de SvelteKit, sin HTTP intermedios.
 
 ## Persistencia de Sesiones
 
-Las sesiones sobreviven restarts del worker:
+Las sesiones sobreviven restarts de la app:
 
 1. **Creds** se almacenan en `whatsapp_sessions.creds` (serializados con `BufferJSON.replacer`)
 2. **Signal keys** se almacenan en `whatsapp_session_keys` (una fila por key, serializadas con `BufferJSON.replacer`)
-3. **Al iniciar**, el worker carga sesiones de la DB, crea un `SqliteKeyStore` por sesión, llama `loadFromDB()` para cargar keys del cache, y reconecta automáticamente
+3. **Al iniciar**, `ChepibeBot.start()` carga sesiones de la DB, crea un `SqliteKeyStore` por sesión, llama `loadFromDB()` para cargar keys del cache, y reconecta automáticamente
 4. **Heartbeat** cada 30s verifica que las sesiones estén activas y reconecta las que se cayeron
 
 ## Seguridad en la Arquitectura
@@ -259,17 +276,13 @@ flowchart TB
 
 Baileys usa WebSocket saliente, no requiere puertos abiertos al público.
 
-
-
 ## Recursos del Sistema
 
 ### Requisitos Mínimos
 
 | Componente | CPU | Memoria | Disco |
 |------------|-----|---------|-------|
-| Web | 0.1 core | 128 MB | 50 MB |
-| Worker | 0.2 core | 256 MB | 50 MB |
-| **Total** | **0.3 cores** | **384 MB** | **100 MB** |
+| App (Web + Bot) | 0.3 core | 384 MB | 100 MB |
 
 ## Monitoreo
 
@@ -296,7 +309,7 @@ Message received → audio → processing | phoneNumber: "54911..." | duration: 
 
 ### Heartbeat
 
-Cada 30 segundos, el worker loguea las sesiones activas:
+Cada 30 segundos, el bot loguea las sesiones activas:
 ```
 Heartbeat: 1 session(s) active
   sessionId: "session_abc" status: "connected" phoneNumber: "54911..."
@@ -304,5 +317,5 @@ Heartbeat: 1 session(s) active
 
 ### Health Checks
 
-- Worker: `GET /api/status`
-- Obfuscated: `GET /api/health`
+- Web: `GET /api/health`
+- Estado del bot: `GET /api/status`

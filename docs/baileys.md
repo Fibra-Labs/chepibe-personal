@@ -283,7 +283,7 @@ Baileys v7.0.0-rc.9, la versión actual de esta librería, contiene errores cono
 **Solución:** Se reemplaza cualquier referencia a `Platform.WEB` por `Platform.MACOS`.
 
 ### Integración en Docker
-El script se ejecuta automáticamente en el `Dockerfile` del worker:
+El script se ejecuta automáticamente en el `Dockerfile` del web:
 ```dockerfile
 RUN chmod +x ./packages/whatsapp-worker/patch-baileys.sh && \
     ./packages/whatsapp-worker/patch-baileys.sh

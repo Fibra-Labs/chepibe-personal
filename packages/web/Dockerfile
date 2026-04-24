@@ -1,4 +1,4 @@
-# ChePibe Personal Web (SvelteKit)
+# ChePibe Personal Web (SvelteKit + WhatsApp Bot)
 # Build context: repo root
 
 ARG ALLOWED_PHONE
@@ -17,9 +17,14 @@ RUN npm install -g pnpm@latest
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
 COPY .npmrc ./
 COPY packages/shared/package.json ./packages/shared/
+COPY packages/whatsapp-worker/package.json ./packages/whatsapp-worker/
 COPY packages/web/package.json ./packages/web/
 
 RUN pnpm install --frozen-lockfile
+
+# Apply patches to Baileys (fixes rc.9 known bugs)
+COPY packages/whatsapp-worker/patch-baileys.sh ./packages/whatsapp-worker/
+RUN chmod +x ./packages/whatsapp-worker/patch-baileys.sh && ./packages/whatsapp-worker/patch-baileys.sh
 
 # =============================================================================
 # Stage 2: Builder
@@ -34,23 +39,36 @@ RUN npm install -g pnpm@latest
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
 COPY .npmrc ./
 COPY packages/shared/package.json ./packages/shared/
+COPY packages/whatsapp-worker/package.json ./packages/whatsapp-worker/
 COPY packages/web/package.json ./packages/web/
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/packages/shared/node_modules ./packages/shared/node_modules
+COPY --from=deps /app/packages/whatsapp-worker/node_modules ./packages/whatsapp-worker/node_modules
 COPY --from=deps /app/packages/web/node_modules ./packages/web/node_modules
 
+# Build shared
 COPY packages/shared/src ./packages/shared/src
+COPY packages/shared/drizzle ./packages/shared/drizzle
 COPY packages/shared/tsconfig.json ./packages/shared/
 COPY packages/shared/tsup.config.ts ./packages/shared/
 RUN pnpm build:shared
 
+# Build worker (library)
+COPY packages/whatsapp-worker/src ./packages/whatsapp-worker/src
+COPY packages/whatsapp-worker/tsconfig.json ./packages/whatsapp-worker/
+COPY packages/whatsapp-worker/tsup.config.ts ./packages/whatsapp-worker/
+COPY packages/whatsapp-worker/patch-baileys.sh ./packages/whatsapp-worker/
+COPY scripts/load-env.js ./scripts/
+RUN pnpm build:worker
+
+# Build web
 COPY packages/web/src ./packages/web/src
 COPY packages/web/tsconfig.json ./packages/web/
 COPY packages/web/svelte.config.js ./packages/web/
 COPY packages/web/vite.config.ts ./packages/web/
 COPY packages/web/package.json ./packages/web/
-COPY scripts ./scripts
+COPY scripts/load-env.js ./scripts/
 ENV NODE_ENV=production \
     ALLOWED_PHONE=${ALLOWED_PHONE}
 RUN pnpm build:web
@@ -65,15 +83,21 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends dumb-init && rm -rf /var/lib/apt/lists/*
 
 RUN groupadd --system --gid 1001 nodejs && \
-    useradd --system --uid 1001 --gid nodejs --home-dir /app --no-create-home nodejs
+    useradd --system --uid 1001 --gid nodejs --home-dir /app --no-create-home nodejs && \
+    mkdir -p /data && chown nodejs:nodejs /data
 
 COPY --from=deps /app/package.json ./
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/packages/shared/node_modules ./packages/shared/node_modules
+COPY --from=deps /app/packages/whatsapp-worker/node_modules ./packages/whatsapp-worker/node_modules
 COPY --from=deps /app/packages/web/node_modules ./packages/web/node_modules
 
 COPY --from=builder /app/packages/shared/package.json ./packages/shared/
 COPY --from=builder /app/packages/shared/dist ./packages/shared/dist
+COPY --from=builder /app/packages/shared/drizzle ./packages/shared/drizzle
+
+COPY --from=builder /app/packages/whatsapp-worker/package.json ./packages/whatsapp-worker/
+COPY --from=builder /app/packages/whatsapp-worker/dist ./packages/whatsapp-worker/dist
 
 COPY --from=builder --chown=nodejs:nodejs /app/packages/web/build ./packages/web/build
 COPY --from=builder /app/packages/web/package.json ./packages/web/

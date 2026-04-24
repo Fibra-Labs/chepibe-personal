@@ -8,6 +8,12 @@ const config = {
     adapter: adapter({
       out: "build",
       precompress: false,
+      external: [
+        "@libsql/client",
+        "libsql",
+        "better-sqlite3",
+        "sqlite3",
+      ],
     }),
     alias: {
       $lib: "./src/lib",

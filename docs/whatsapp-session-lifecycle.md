@@ -8,7 +8,7 @@ A session progresses through a finite set of states. Every transition has one en
 stateDiagram-v2
     direction TB
 
-    [*] --> none : API: createConnection()
+    [*] --> none : createConnection()
     none --> pending : WebSocket opened, waiting for QR
     pending --> pending : QR generated (resolve promise)
     pending --> connected : connection.update = "open"
@@ -17,14 +17,14 @@ stateDiagram-v2
 
     connected --> connected : messages.upsert, creds.update
     connected --> reconnecting : connection.update = "close" (not 401)
-    connected --> destroyed : phone mismatch / API disconnect
+    connected --> destroyed : phone mismatch / disconnect request
 
     reconnecting --> connected : connection.update = "open"
     reconnecting --> reconnecting : backoff retry (max 10)
     reconnecting --> destroyed : max retries exceeded / 401
 
     destroyed --> [*] : data deleted (cannot restore)
-    destroyed --> none : API: createConnection() with same ID
+    destroyed --> none : createConnection() with same ID
 ```
 
 ### State Descriptions
@@ -41,7 +41,7 @@ stateDiagram-v2
 
 There are only two ways a session exits the machine:
 
-1. **`teardownSession(id, { deleteData: true })`** — Nukes DB data. Used for: 401 logout, phone mismatch, API disconnect, QR timeout, connection closed before QR. The session cannot be restored.
+1. **`teardownSession(id, { deleteData: true })`** — Nukes DB data. Used for: 401 logout, phone mismatch, disconnect request, QR timeout, connection closed before QR. The session cannot be restored.
 2. **`teardownSession(id, { deleteData: false })`** — Preserves DB data. Used for: graceful shutdown, reconnection prep. The session can be restored on restart.
 
 ## Disconnection Decision Table
@@ -56,7 +56,7 @@ flowchart TD
 
     C --> C1[401: logged out]
     C --> C2[Phone number mismatch]
-    C --> C3[API disconnect request]
+    C --> C3[Disconnect request]
     C --> C4[QR timeout - no valid session yet]
     C --> C5[Connection close before QR]
 
@@ -66,7 +66,7 @@ flowchart TD
 
 | Trigger | `deleteData` | Reason |
 |---------|-------------|--------|
-| API `/api/disconnect` | `true` | User explicitly requested disconnect |
+| Disconnect request | `true` | User explicitly requested disconnect |
 | 401 logout | `true` | Phone explicitly logged out, creds are invalid |
 | Phone mismatch | `true` | Wrong phone, must not restore |
 | QR timeout (30s) | `true` | No valid session established yet |
@@ -81,13 +81,13 @@ flowchart TD
 
 ```mermaid
 sequenceDiagram
-    participant API as /api/qr
+    participant BOT as ChepibeBot.getQR()
     participant MGR as BaileysConnectionManager
     participant DB as SQLite
     participant BA as Baileys (WhatsApp)
     participant WS as WebSocket
 
-    API->>MGR: createConnection(sessionId)
+    BOT->>MGR: createConnection(sessionId)
     MGR->>MGR: teardownSession(id, deleteData: false) if existing
     MGR->>DB: loadOrCreateAuthState() — load or init creds
     MGR->>DB: SqliteKeyStore.loadFromDB()
@@ -95,8 +95,8 @@ sequenceDiagram
     BA->>WS: connect to WhatsApp servers
     WS-->>BA: QR code
     BA-->>MGR: connection.update { qr }
-    MGR-->>API: { qrCode }
-    Note over API: User scans QR
+    MGR-->>BOT: { qrCode }
+    Note over BOT: User scans QR
     WS-->>BA: connection.open
     BA-->>MGR: connection.update { connection: "open" }
     MGR->>DB: saveCredentials()
@@ -108,12 +108,12 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
-    participant MAIN as main.ts
+    participant BOT as ChepibeBot.start()
     participant MGR as BaileysConnectionManager
     participant DB as SQLite
     participant BA as Baileys (WhatsApp)
 
-    MAIN->>MGR: restoreSessions()
+    BOT->>MGR: restoreSessions()
     MGR->>DB: SELECT * FROM whatsapp_sessions
     loop For each session with creds
         MGR->>DB: loadOrCreateAuthState() — load saved creds
@@ -164,15 +164,15 @@ sequenceDiagram
     MGR-->>MGR: emit DISCONNECTED { reason: "logged_out" }
 ```
 
-### API Disconnect
+### Disconnect Request
 
 ```mermaid
 sequenceDiagram
-    participant API as /api/disconnect
+    participant BOT as ChepibeBot.disconnect()
     participant MGR as BaileysConnectionManager
     participant DB as SQLite
 
-    API->>MGR: disconnectSession(sessionId)
+    BOT->>MGR: disconnectSession(sessionId)
     MGR->>MGR: teardownSession(id, { deleteData: true })
     MGR->>MGR: cancel reconnect timers
     MGR->>MGR: flush pending key writes
@@ -180,7 +180,7 @@ sequenceDiagram
     MGR->>DB: DELETE FROM whatsapp_session_keys WHERE sessionId = ?
     MGR->>DB: DELETE FROM whatsapp_sessions WHERE id = ?
     MGR->>MGR: remove from sessions map
-    MGR-->>API: { ok: true }
+    MGR-->>BOT: void
 ```
 
 ### Graceful Shutdown
@@ -188,12 +188,12 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant SIG as SIGTERM/SIGINT
-    participant MAIN as main.ts
+    participant BOT as ChepibeBot.destroy()
     participant MGR as BaileysConnectionManager
     participant DB as SQLite
 
-    SIG->>MAIN: shutdown signal
-    MAIN->>MGR: destroy()
+    SIG->>BOT: shutdown signal
+    BOT->>MGR: destroy()
     loop For each active session
         MGR->>MGR: teardownSession(id, { deleteData: false })
         MGR->>MGR: cancel reconnect timers

@@ -96,10 +96,7 @@ pnpm install
 cp .env.example .env
 # Editar .env con ALLOWED_PHONE y GROQ_API_KEY
 
-# Terminal 1: Worker
-pnpm dev:worker
-
-# Terminal 2: Web
+# Iniciar modo desarrollo
 # Nota: Hay que pasar ALLOWED_PHONE explícitamente ya que SvelteKit solo carga .env desde packages/web/
 ALLOWED_PHONE=$(grep ALLOWED_PHONE .env | cut -d '=' -f2) pnpm dev:web
 ```
@@ -121,8 +118,6 @@ Abrí `http://localhost:5173` para escanear el código QR.
 | `DATABASE_URL` | No | URL de la base de datos (local o Turso) | `file:./data/chepibe-personal.db` |
 | `DATABASE_PASSWORD` | No | Password de la base de datos (solo Turso remoto) | — |
 | `WEB_PORT` | No | Puerto web expuesto al host (Docker) | `3000` |
-| `WORKER_PORT` | No | Puerto del worker expuesto al host (Docker) | `3001` |
-| `WORKER_API_URL` | No | URL del worker para el web | `http://localhost:3001` |
 | `DEBUG` | No | Activar logs detallados de Baileys | `false` |
 
 **Nota:** Para `pnpm dev:web`, `ALLOWED_PHONE` debe pasarse explícitamente (ver sección Instalación Manual) ya que SvelteKit solo auto-carga `.env` desde el directorio del paquete, no desde la raíz del monorepo.
@@ -138,24 +133,29 @@ El `ALLOWED_PHONE` es tu número de WhatsApp en formato internacional **sin el s
 ## Arquitectura
 
 ```
-┌─────────────────────┐       ┌─────────────────────────┐
-│   Web (SvelteKit)   │  HTTP │   WhatsApp Worker       │
-│   Host: WEB_PORT    │◄─────►│   Host: WORKER_PORT     │
-│   Container: 3000   │       │   Container: 3001       │
-│                     │       │                         │
-│  • Código QR        │       │  • Baileys (WhatsApp)   │
-│  • Estado conexión  │       │  • Groq Whisper          │
-│  • en Español       │       │  • Groq Llama            │
-└─────────┬───────────┘       └──────────┬──────────────┘
-          │                              │
-          ▼                              ▼
-    ┌──────────┐                   ┌──────────────┐
-    │  SQLite  │                   │  SQLite      │
-    │ (local)  │                   │  (Signal Keys)│
-    └──────────┘                   └──────────────┘
+┌───────────────────────────────────────────────────────────┐
+│                    Aplicación (SvelteKit)                  │
+│                      Puerto: WEB_PORT                       │
+│                                                           │
+│  ┌──────────────────┐  ┌──────────────────┐              │
+│  │   Web UI         │  │  ChepibeBot      │              │
+│  │   (QR, Status)   │  │  (Baileys + Groq)│              │
+│  └────────┬─────────┘  └────────┬─────────┘              │
+│           │                    │                         │
+│           └────────────────────┘                         │
+│                   │                                       │
+│                   ▼                                       │
+│          ┌──────────────┐                                 │
+│          │  SQLite DB   │                                 │
+│          │  (sessions + │                                 │
+│          │  signal keys)│                                 │
+│          └──────────────┘                                 │
+└───────────────────────────────────────────────────────────┘
 ```
 
 Sin Redis. Sin servicios externos además de Groq y WhatsApp.
+
+**ChepibeBot** es una librería embebida dentro del proceso SvelteKit. No hay servidor HTTP separado. La UI accede al estado del bot directamente via la API de la librería.
 
 ## Estructura del Proyecto
 
@@ -163,8 +163,8 @@ Sin Redis. Sin servicios externos además de Groq y WhatsApp.
 chepibe-personal/
 ├── packages/
 │   ├── shared/              # Esquema DB, tipos, migraciones
-│   ├── whatsapp-worker/     # Worker de Baileys + Groq
-│   └── web/                 # Frontend SvelteKit 5 (en Español)
+│   ├── whatsapp-worker/     # Librería ChepibeBot (Baileys + Groq)
+│   └── web/                 # Frontend SvelteKit 5 (en Español) + servidor
 ├── docs/                    # Arquitectura, Baileys, Seguridad
 ├── docker-compose.yml       # Producción (1 comando para iniciar)
 ├── .env.example             # Variables de entorno requeridas
@@ -185,8 +185,7 @@ Ninguna tabla almacena contenido de audio, transcripciones o resúmenes. Ver [do
 ```bash
 pnpm install
 
-# Modo dev (terminales separadas)
-pnpm dev:worker
+# Modo dev
 pnpm dev:web
 
 # Build completo
@@ -195,7 +194,7 @@ pnpm build
 # Base de datos
 pnpm db:generate     # Generar migraciones
 pnpm db:migrate     # Ejecutar migraciones
-pnpm db:studio       # Drizzle Studio
+pnpm db:studio      # Drizzle Studio
 ```
 
 ## Licencia

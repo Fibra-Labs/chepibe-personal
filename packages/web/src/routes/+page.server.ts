@@ -1,17 +1,28 @@
+import { awaitBot } from '$lib/server/bot';
 import { config } from '$lib/server/config';
+import { env } from '$env/dynamic/private';
+import pino from 'pino';
 import type { Actions } from '@sveltejs/kit';
+
+const logger = pino({
+	level: env.DEBUG === 'true' ? 'debug' : 'error',
+	transport: env.DEBUG === 'true'
+		? { target: 'pino-pretty', options: { colorize: true } }
+		: undefined,
+});
 
 export const load = async () => {
 	try {
-		const response = await fetch(`${config.workerApiUrl}/api/status`);
-		const data = await response.json();
+		const bot = await awaitBot();
+		const data = bot.getStatus();
 		return {
 			connected: data.connected ?? false,
 			phoneNumber: data.phoneNumber ?? null,
-			sessionId: data.sessions?.[0]?.sessionId ?? null,
+			sessionId: data.sessions?.find((s: { status: string }) => s.status === 'connected')?.sessionId ?? data.sessions?.[0]?.sessionId ?? null,
 			allowedPhone: config.allowedPhone
 		};
-	} catch {
+	} catch (err) {
+		logger.error({ err }, 'Home page load failed');
 		return {
 			connected: false,
 			phoneNumber: null,
@@ -26,12 +37,13 @@ export const actions: Actions = {
 		const data = await request.formData();
 		const sessionId = data.get('sessionId')?.toString();
 		try {
-			await fetch(`${config.workerApiUrl}/api/disconnect`, {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ sessionId })
-			});
-		} catch {}
+			const bot = await awaitBot();
+		if (sessionId) {
+			await bot.disconnect(sessionId);
+		}
+		} catch (err) {
+			logger.error({ err, sessionId }, 'Disconnect action failed');
+		}
 		return { success: true };
 	}
 };
