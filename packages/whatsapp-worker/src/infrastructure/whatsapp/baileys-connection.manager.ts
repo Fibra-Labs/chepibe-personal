@@ -1,6 +1,7 @@
 import makeWASocket, {
     type AuthenticationCreds,
     type AuthenticationState,
+    type WASocket,
     BufferJSON,
     downloadMediaMessage,
     fetchLatestBaileysVersion,
@@ -38,6 +39,7 @@ function createBaileysLogger(logger: Logger): any {
         warn: (...args: any[]) => { if (DEBUG) logger.warn({ baileys: true }, args.map(serializeBaileysArg).join(' ')); },
         debug: (...args: any[]) => { if (DEBUG) logger.debug({ baileys: true }, args.map(serializeBaileysArg).join(' ')); },
         fatal: (...args: any[]) => logger.fatal({ baileys: true }, args.map(serializeBaileysArg).join(' ')),
+        trace: (...args: any[]) => { if (DEBUG) logger.trace({ baileys: true }, args.map(serializeBaileysArg).join(' ')); },
         child: () => createBaileysLogger(logger),
         level: DEBUG ? 'trace' as const : 'silent' as const,
     };
@@ -256,6 +258,9 @@ export class BaileysConnectionManager {
                     this.reconnectAttempts.delete(sessionId);
 
                     this.eventEmitter.emit('CONNECTED', { sessionId, phoneNumber: session.phoneNumber });
+
+                    // Validate the session is actually authenticated (device not unlinked)
+                    void this.validateSession(sessionId, socket);
                 }
 
                 if (connection === 'close') {
@@ -374,6 +379,32 @@ export class BaileysConnectionManager {
     }
 
     // ----------------------------------------------------------------
+    // Session validity check
+    // ----------------------------------------------------------------
+
+    /**
+     * Validates that the session is actually authenticated by sending a lightweight
+     * presence update. If the device was unlinked while the app was down, this will
+     * fail and we can clean up immediately instead of showing a stale "connected" state.
+     */
+    private async validateSession(sessionId: string, socket: WASocket): Promise<boolean> {
+        try {
+            // Give Baileys a moment to settle after connection.open
+            await new Promise(resolve => setTimeout(resolve, 3000));
+            // This will throw if the session is invalid/unlinked
+            await socket.sendPresenceUpdate('unavailable');
+            this.logger.info({ sessionId }, 'Session validation ping succeeded');
+            return true;
+        } catch (err: any) {
+            const statusCode = err?.output?.statusCode;
+            const msg = err?.message || '';
+            this.logger.warn({ sessionId, statusCode, msg }, 'Session validation ping failed — session is invalid');
+            await this.teardownSession(sessionId, { deleteData: true, reason: 'invalid_session' });
+            return false;
+        }
+    }
+
+    // ----------------------------------------------------------------
     // Connection event handlers
     // ----------------------------------------------------------------
 
@@ -417,6 +448,9 @@ export class BaileysConnectionManager {
             await this.updateSessionStatus(sessionId, 'connected', session.phoneNumber);
 
             this.eventEmitter.emit('CONNECTED', { sessionId, phoneNumber: session.phoneNumber });
+
+            // Validate the session is actually authenticated (device not unlinked)
+            void this.validateSession(sessionId, session.socket);
 
             const watchdog = setTimeout(() => {
                 const current = this.sessions.get(sessionId);

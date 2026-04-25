@@ -2,6 +2,31 @@
 	import type { PageData } from './$types';
 
 	let { data, form }: { data: PageData; form?: { success?: boolean } } = $props();
+
+	let connected = $state(data.connected);
+	let phoneNumber = $state(data.phoneNumber);
+	let sessionId = $state(data.sessionId);
+
+	$effect(() => {
+		connected = data.connected;
+		phoneNumber = data.phoneNumber;
+		sessionId = data.sessionId;
+	});
+
+	$effect(() => {
+		const poll = setInterval(async () => {
+			try {
+				const response = await fetch('/api/status');
+				const status = await response.json();
+				connected = status.connected ?? false;
+				phoneNumber = status.phoneNumber ?? null;
+			} catch {
+				// ignore polling errors
+			}
+		}, 4000);
+
+		return () => clearInterval(poll);
+	});
 </script>
 
 <div class="flex min-h-[70vh] flex-col items-center justify-center py-8">
@@ -21,16 +46,16 @@
 		</div>
 
 		<div class="border-t border-b py-4 mb-6" style="border-color: var(--card-border);">
-			{#if data.connected}
+			{#if connected}
 				<div class="flex items-center justify-center gap-2">
 					<div class="status-dot connected"></div>
 					<span class="font-medium" style="color: var(--primary-dark);">
 						Conectado
 					</span>
 				</div>
-				{#if data.phoneNumber}
+				{#if phoneNumber}
 					<p class="mt-1 text-sm" style="color: var(--foreground-muted);">
-						{data.phoneNumber}
+						{phoneNumber}
 					</p>
 				{/if}
 			{:else}
@@ -43,9 +68,9 @@
 			{/if}
 		</div>
 
-		{#if data.connected}
+		{#if connected}
 			<form method="POST">
-				<input type="hidden" name="sessionId" value={data.sessionId ?? ''} />
+				<input type="hidden" name="sessionId" value={sessionId ?? ''} />
 				<button
 					type="submit"
 					class="w-full rounded-xl px-4 py-3 text-sm font-semibold text-white transition-all duration-300 hover:scale-[1.02]"
