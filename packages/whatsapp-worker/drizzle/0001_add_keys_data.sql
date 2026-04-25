@@ -1,0 +1,1 @@
+ALTER TABLE `whatsapp_sessions` ADD `keys_data` text;

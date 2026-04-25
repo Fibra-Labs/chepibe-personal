@@ -5,6 +5,7 @@
   "license": "AGPL-3.0",
   "description": "WhatsApp Baileys worker — receives audio, transcribes via Groq, sends back summary",
   "main": "./dist/index.mjs",
+  "files": ["dist", "drizzle"],
   "exports": {
     ".": {
       "import": "./dist/index.mjs",

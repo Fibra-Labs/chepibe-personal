@@ -8,4 +8,5 @@ export interface ChepibeBotOptions {
 	databaseUrl: string;
 	databasePassword?: string;
 	logger?: Logger;
+	migrationsPath?: string;
 }

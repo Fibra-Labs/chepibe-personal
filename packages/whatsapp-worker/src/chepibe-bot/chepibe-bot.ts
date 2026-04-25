@@ -2,6 +2,7 @@ import EventEmitter from 'node:events';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
 import pino from 'pino';
 import type { Logger } from 'pino';
 import { createDb, runMigrations } from '@chepibe-personal/shared';
@@ -43,9 +44,20 @@ export class ChepibeBot extends EventEmitter {
 		const { db, client } = await createDb({ url: databaseUrl, authToken: databasePassword });
 
 		this.logger.info('Running database migrations...');
-		const require = createRequire(import.meta.url);
-		const sharedPkgDir = path.dirname(require.resolve('@chepibe-personal/shared/package.json'));
-		const migrationsPath = path.join(sharedPkgDir, 'drizzle');
+		let migrationsPath = this.options.migrationsPath;
+		if (!migrationsPath) {
+			try {
+				const require = createRequire(import.meta.url);
+				const sharedPkgDir = path.dirname(require.resolve('@chepibe-personal/shared/package.json'));
+				migrationsPath = path.join(sharedPkgDir, 'drizzle');
+			} catch {
+				migrationsPath = path.join(path.dirname(new URL(import.meta.url).pathname), '../../drizzle');
+				if (!fs.existsSync(migrationsPath)) {
+					const fileUrl = new URL('../../drizzle', import.meta.url);
+					migrationsPath = fileURLToPath(fileUrl);
+				}
+			}
+		}
 		await runMigrations(db, migrationsPath);
 		this.logger.info('Database migrations completed');
 
