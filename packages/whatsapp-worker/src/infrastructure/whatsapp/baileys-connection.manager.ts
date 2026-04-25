@@ -54,6 +54,8 @@ export class BaileysConnectionManager {
     private readonly logger: Logger;
     private heartbeatInterval: NodeJS.Timeout | null = null;
     private readonly allowedPhone: string;
+    private cachedVersion: { version: readonly number[]; fetchedAt: number } | null = null;
+    private readonly VERSION_CACHE_TTL_MS = 300000;
 
     constructor(
         private db: Db,
@@ -68,6 +70,22 @@ export class BaileysConnectionManager {
 
     on(event: string, handler: (...args: any[]) => void): void {
         this.eventEmitter.on(event, handler);
+    }
+
+    private async assertPhoneMatch(sessionId: string, phoneNumber: string | undefined): Promise<boolean> {
+        if (phoneNumber === this.allowedPhone) return true;
+        this.logger.fatal({ sessionId, connectedPhone: phoneNumber, allowedPhone: this.allowedPhone }, 'Phone number does not match ALLOWED_PHONE. Disconnecting.');
+        await this.teardownSession(sessionId, { deleteData: true, reason: 'phone_mismatch' });
+        return false;
+    }
+
+    private async getLatestVersion(): Promise<[number, number, number]> {
+        if (this.cachedVersion && Date.now() - this.cachedVersion.fetchedAt < this.VERSION_CACHE_TTL_MS) {
+            return this.cachedVersion.version as [number, number, number];
+        }
+        const { version } = await fetchLatestBaileysVersion();
+        this.cachedVersion = { version, fetchedAt: Date.now() };
+        return version as [number, number, number];
     }
 
     // ----------------------------------------------------------------
@@ -118,7 +136,7 @@ export class BaileysConnectionManager {
             for (const session of sessions) {
                 if (session.status === 'connected' && !session.socket.user) {
                     this.logger.warn({ sessionId: session.sessionId }, 'Session marked connected but has no user — marking disconnected');
-                    session.status = 'disconnected' as SessionStatus;
+                    void this.updateSessionStatus(session.sessionId, 'disconnected');
                     void this.reconnectWithSavedCreds(session.sessionId);
                 }
             }
@@ -161,7 +179,7 @@ export class BaileysConnectionManager {
 
         const { state, saveCredentials } = await this.loadOrCreateAuthState(sessionId);
 
-        const { version } = await fetchLatestBaileysVersion();
+        const version = await this.getLatestVersion();
         this.logger.info({ sessionId, version: version.join('.') }, 'Creating Baileys socket');
         const msgRetryCounterCache = new NodeCache();
 
@@ -200,7 +218,7 @@ export class BaileysConnectionManager {
                     void this.teardownSession(sessionId, { deleteData: true, reason: 'qr_timeout' });
                     reject(new Error('Timeout waiting for QR code'));
                 }
-            }, 30000);
+            }, 60000);
 
             socket.ev.on('connection.update', async (update) => {
                 const { connection, qr, lastDisconnect } = update;
@@ -225,13 +243,7 @@ export class BaileysConnectionManager {
                         session.phoneNumber = userId.split('@')[0].split(':')[0];
                     }
 
-                    if (session.phoneNumber !== this.allowedPhone) {
-                        this.logger.fatal({
-                            sessionId,
-                            connectedPhone: session.phoneNumber,
-                            allowedPhone: this.allowedPhone,
-                        }, 'Connected phone number does not match ALLOWED_PHONE. Disconnecting.');
-                        await this.teardownSession(sessionId, { deleteData: true, reason: 'phone_mismatch' });
+                    if (!(await this.assertPhoneMatch(sessionId, session.phoneNumber))) {
                         if (!hasResolved) {
                             hasResolved = true;
                             clearTimeout(timeout);
@@ -323,7 +335,7 @@ export class BaileysConnectionManager {
     private async reconnectWithSavedCreds(sessionId: string): Promise<void> {
         const { state, saveCredentials } = await this.loadOrCreateAuthState(sessionId);
 
-        const { version } = await fetchLatestBaileysVersion();
+        const version = await this.getLatestVersion();
         const msgRetryCounterCache = new NodeCache();
 
         this.logger.info({ sessionId, version: version.join('.') }, 'Reconnecting with saved credentials');
@@ -395,13 +407,7 @@ export class BaileysConnectionManager {
                 session.phoneNumber = userId.split('@')[0].split(':')[0];
             }
 
-            if (session.phoneNumber !== this.allowedPhone) {
-                this.logger.fatal({
-                    sessionId,
-                    connectedPhone: session.phoneNumber,
-                    allowedPhone: this.allowedPhone,
-                }, 'Reconnected phone number does not match ALLOWED_PHONE. Disconnecting.');
-                await this.teardownSession(sessionId, { deleteData: true, reason: 'phone_mismatch' });
+            if (!(await this.assertPhoneMatch(sessionId, session.phoneNumber))) {
                 return;
             }
 
@@ -496,7 +502,6 @@ export class BaileysConnectionManager {
 
             const isGroup = sender.includes('@g.us');
             const participant = message.key.participant || message.key.participantAlt;
-            const senderIsLid = (isGroup ? participant : sender)?.includes('@lid');
             const participantSource = isGroup ? participant : sender;
             const rawNumber = (participantSource || sender).split('@')[0].split(':')[0];
 

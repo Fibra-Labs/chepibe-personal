@@ -11,36 +11,28 @@ const logger = pino({
 		: undefined,
 });
 
-if (!env.ALLOWED_PHONE) {
-	logger.fatal('ALLOWED_PHONE is required');
-}
-if (!env.GROQ_API_KEY) {
-	logger.fatal('GROQ_API_KEY is required');
-}
-if (!env.GROQ_WHISPER_MODEL) {
-	logger.fatal('GROQ_WHISPER_MODEL is required');
-}
-if (!env.GROQ_LLM_MODEL) {
-	logger.fatal('GROQ_LLM_MODEL is required');
-}
-if (!env.DATABASE_URL) {
-	logger.fatal('DATABASE_URL is required');
-}
-
-logger.debug({
-	allowedPhone: env.ALLOWED_PHONE ? '***' : 'MISSING',
-	groqWhisperModel: env.GROQ_WHISPER_MODEL,
-	groqLlmModel: env.GROQ_LLM_MODEL,
-	databaseUrl: env.DATABASE_URL ? '***' : 'MISSING',
-}, 'bot.ts env loaded');
-
 let _bot: ChepibeBot | undefined;
 let _startPromise: Promise<void> | undefined;
+
+function validateEnv(): void {
+	const missing: string[] = [];
+	if (!env.ALLOWED_PHONE) missing.push('ALLOWED_PHONE');
+	if (!env.GROQ_API_KEY) missing.push('GROQ_API_KEY');
+	if (!env.GROQ_WHISPER_MODEL) missing.push('GROQ_WHISPER_MODEL');
+	if (!env.GROQ_LLM_MODEL) missing.push('GROQ_LLM_MODEL');
+	if (!env.DATABASE_URL) missing.push('DATABASE_URL');
+
+	if (missing.length > 0) {
+		logger.fatal({ missing }, 'Required environment variables are missing');
+		process.exit(1);
+	}
+}
 
 function startBot(): Promise<void> {
 	if (_bot) return Promise.resolve();
 	if (_startPromise) return _startPromise;
 	_startPromise = (async () => {
+		validateEnv();
 		logger.debug('Creating and starting ChepibeBot');
 		_bot = new ChepibeBot({
 			groqApiKey: env.GROQ_API_KEY!,

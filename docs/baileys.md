@@ -14,23 +14,37 @@
 
 ### Flujo de Conexión QR
 
-```
-1. Worker crea WebSocket hacia WhatsApp
-2. WhatsApp envía código QR
-3. Usuario escanea QR desde su teléfono
-4. WhatsApp valida y autoriza la sesión
-5. Credenciales + Signal Keys se persisten en SQLite
-6. Sesión marcada como "connected"
+```mermaid
+sequenceDiagram
+    participant W as Worker
+    participant WS as WhatsApp WebSocket
+    participant U as Usuario
+    participant DB as SQLite
+
+    W->>WS: Crea WebSocket
+    WS-->>W: Envia código QR
+    W->>U: Muestra QR en Web UI
+    U->>WS: Escanea QR desde teléfono
+    WS-->>W: Valida y autoriza sesión
+    W->>DB: Persiste creds + Signal Keys
+    W->>W: Marca sesión como "connected"
 ```
 
-El QR vence en 60 segundos. La página web muestra un countdown regresivo y recarga automáticamente al expirar.
+El QR tiene un timeout de 30 segundos en el backend (`createConnection`). La página web muestra un countdown de 60 segundos y recarga automáticamente al expirar. Si el usuario escanea después de los 30s, el QR ya no será válido y la página generará uno nuevo al recargar.
 
 ### Reconexión Automática
 
 Las credenciales se almacenan en SQLite y permiten reconectar sin escanear QR:
 
-```
-Worker reinicia → Carga sesiones de DB → Crea SqliteKeyStore → loadFromDB() → Reconecta WebSocket
+```mermaid
+flowchart LR
+    A["🔄 Worker reinicia"] --> B["📂 Carga sesiones de DB"]
+    B --> C["🔑 Crea SqliteKeyStore"]
+    C --> D["💾 loadFromDB()"]
+    D --> E["🔌 Reconecta WebSocket"]
+
+    style A stroke:#ff9900
+    style E stroke:#00cc00
 ```
 
 **Estrategia de reintento**:
@@ -45,10 +59,13 @@ Worker reinicia → Carga sesiones de DB → Crea SqliteKeyStore → loadFromDB(
 
 Baileys usa el Signal Protocol para encriptación E2E. Las keys se almacenan en SQLite como filas individuales:
 
-```
-SqliteKeyStore (inner store)
-    ↕ makeCacheableSignalKeyStore (caching wrapper de Baileys)
-    ↕ Baileys WebSocket
+```mermaid
+flowchart TB
+    A["Baileys WebSocket"] <--> B["makeCacheableSignalKeyStore<br/>(caching wrapper)"]
+    B <--> C["SqliteKeyStore<br/>(inner store)")
+    C <--> D["SQLite<br/>whatsapp_session_keys"]
+
+    style D fill:#e8f4f8,stroke:#333
 ```
 
 ### Tabla whatsapp_session_keys
@@ -145,7 +162,7 @@ stateDiagram-v2
 
 El campo `processedHistoryMessages` dentro de `whatsapp_sessions.creds` es parte del estado de autenticación de Baileys. Se guarda automáticamente por Baileys durante la sincronización de historial y contiene un array de **keys de mensajes** (no contenido):
 
-```typescript
+```json5
 // Estructura de cada entrada
 {
   key: {
@@ -174,8 +191,13 @@ El campo `processedHistoryMessages` dentro de `whatsapp_sessions.creds` es parte
 ### Filtros (código real)
 
 ```typescript
-// 1. Solo notify o requestId (offline)
-if (m.type !== 'notify' && !m.requestId) return;
+// 1. Solo notify o requestId (offline). Excepción: mensajes append que contienen audio.
+if (m.type !== 'notify' && !m.requestId) {
+    const hasAudio = m.messages?.some(msg =>
+        msg.message?.audioMessage || msg.message?.pttMessage
+    );
+    if (!hasAudio) return;
+}
 
 // 2. De nosotros sin audio = skip (es respuesta del bot)
 if (isFromMe && !audioMessage) return;

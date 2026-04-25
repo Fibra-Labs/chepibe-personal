@@ -54,9 +54,16 @@ pnpm dev:web
 
 ### Cómo Funciona
 
-```
-Alguien envía audio → Baileys lo recibe → Descarga audio → Groq Whisper transcribe → 
-Groq Llama resume → Se envía transcripción + resumen al usuario conectado
+```mermaid
+flowchart LR
+    A["🎤 Alguien envía audio"] --> B["Baileys lo recibe"]
+    B --> C["📥 Descarga audio<br/>(Buffer en memoria)"]
+    C --> D["Groq Whisper transcribe"]
+    D --> E["Groq Llama resume"]
+    E --> F["📤 Se envía transcripción<br/>+ resumen al usuario"]
+
+    style C stroke:#ff0000
+    style F stroke:#00cc00
 ```
 
 El audio se procesa **en memoria** y se descarta inmediatamente. No hay base de datos de audios ni transcripciones.

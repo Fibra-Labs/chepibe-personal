@@ -69,9 +69,15 @@ pnpm logs
 
 ## Cómo Funciona
 
-```
-Entra un audio → Baileys (WhatsApp) → Groq Whisper (transcripción) → 
-Groq Llama (resumen) → Se envía a TU chat
+```mermaid
+flowchart LR
+    A["🎤 Audio entrante"] --> B["Baileys<br/>(WhatsApp WebSocket)"]
+    B --> C["Groq Whisper<br/>(transcripción)"]
+    C --> D["Groq Llama<br/>(resumen)"]
+    D --> E["📤 Se envía a TU chat"]
+
+    style A stroke:#ff0000
+    style E stroke:#00cc00
 ```
 
 - **Tus propios audios** → transcritos y enviados de vuelta a vos
@@ -132,25 +138,23 @@ El `ALLOWED_PHONE` es tu número de WhatsApp en formato internacional **sin el s
 
 ## Arquitectura
 
-```
-┌───────────────────────────────────────────────────────────┐
-│                    Aplicación (SvelteKit)                  │
-│                      Puerto: WEB_PORT                       │
-│                                                           │
-│  ┌──────────────────┐  ┌──────────────────┐              │
-│  │   Web UI         │  │  ChepibeBot      │              │
-│  │   (QR, Status)   │  │  (Baileys + Groq)│              │
-│  └────────┬─────────┘  └────────┬─────────┘              │
-│           │                    │                         │
-│           └────────────────────┘                         │
-│                   │                                       │
-│                   ▼                                       │
-│          ┌──────────────┐                                 │
-│          │  SQLite DB   │                                 │
-│          │  (sessions + │                                 │
-│          │  signal keys)│                                 │
-│          └──────────────┘                                 │
-└───────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    subgraph App["⚙️ Aplicación (SvelteKit) — Puerto: WEB_PORT"]
+        UI["🌐 Web UI<br/>(QR, Status)"]
+        Bot["🤖 ChepibeBot<br/>(Baileys + Groq)"]
+    end
+
+    subgraph DB["💾 SQLite DB"]
+        S["whatsapp_sessions<br/>(creds, metadata)"]
+        K["whatsapp_session_keys<br/>(Signal Protocol keys)"]
+    end
+
+    UI --> Bot
+    Bot --> S
+    Bot --> K
+
+    style DB fill:#e8f4f8,stroke:#333
 ```
 
 Sin Redis. Sin servicios externos además de Groq y WhatsApp.

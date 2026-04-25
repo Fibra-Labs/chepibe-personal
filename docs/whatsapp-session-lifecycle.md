@@ -1,83 +1,83 @@
-# WhatsApp Session Lifecycle
+# Ciclo de Vida de la Sesión de WhatsApp
 
-## State Machine
+## Máquina de Estados
 
-A session progresses through a finite set of states. Every transition has one entry point (`teardownSession`) for cleanup, which eliminates double-delete bugs and key store leaks.
+Una sesión transita por un conjunto finito de estados. Cada transición cuenta con un único punto de entrada (`teardownSession`) para la limpieza, lo que elimina errores de doble eliminación y fugas del almacén de claves.
 
 ```mermaid
 stateDiagram-v2
     direction TB
 
     [*] --> none : createConnection()
-    none --> pending : WebSocket opened, waiting for QR
-    pending --> pending : QR generated (resolve promise)
+    none --> pending : WebSocket abierto, esperando QR
+    pending --> pending : QR generado (resuelve promesa)
     pending --> connected : connection.update = "open"
-    pending --> destroyed : connection.update = "close" (timeout/401/other)
+    pending --> destroyed : connection.update = "close" (timeout/401/otro)
     pending --> reconnecting : connection.update = "close" (515)
 
     connected --> connected : messages.upsert, creds.update
-    connected --> reconnecting : connection.update = "close" (not 401)
-    connected --> destroyed : phone mismatch / disconnect request
+    connected --> reconnecting : connection.update = "close" (no 401)
+    connected --> destroyed : número de teléfono no coincide / solicitud de desconexión
 
     reconnecting --> connected : connection.update = "open"
-    reconnecting --> reconnecting : backoff retry (max 10)
-    reconnecting --> destroyed : max retries exceeded / 401
+    reconnecting --> reconnecting : reintento con retardo exponencial (máx. 10)
+    reconnecting --> destroyed : máx. reintentos excedido / 401
 
-    destroyed --> [*] : data deleted (cannot restore)
-    destroyed --> none : createConnection() with same ID
+    destroyed --> [*] : datos eliminados (no se pueden restaurar)
+    destroyed --> none : createConnection() con el mismo ID
 ```
 
-### State Descriptions
+### Descripción de los Estados
 
-| State | In-memory? | Data in DB? | Meaning |
-|-------|-----------|-------------|---------|
-| `none` | No | Maybe | No active session for this ID |
-| `pending` | Yes | Yes (new creds) | WebSocket open, waiting for QR scan |
-| `connected` | Yes | Yes (creds + status) | Authenticated, processing messages |
-| `reconnecting` | Yes | Yes | Between close and open, backoff retry |
-| `destroyed` | No | No (deleted) | Session nuked, cannot be restored |
+| Estado | ¿En memoria? | ¿Datos en DB? | Significado |
+|--------|-------------|---------------|-------------|
+| `none` | No | Quizás | No hay sesión activa para este ID |
+| `pending` | Sí | Sí (creds nuevos) | WebSocket abierto, esperando escaneo de QR |
+| `connected` | Sí | Sí (creds + estado) | Autenticado, procesando mensajes |
+| `reconnecting` | Sí | Sí | Entre cierre y apertura, reintento con retardo exponencial |
+| `destroyed` | No | No (eliminados) | Sesión destruida, no puede restaurarse |
 
-### Key Insight
+### Observación Clave
 
-There are only two ways a session exits the machine:
+Existen únicamente dos formas en que una sesión abandona la máquina:
 
-1. **`teardownSession(id, { deleteData: true })`** — Nukes DB data. Used for: 401 logout, phone mismatch, disconnect request, QR timeout, connection closed before QR. The session cannot be restored.
-2. **`teardownSession(id, { deleteData: false })`** — Preserves DB data. Used for: graceful shutdown, reconnection prep. The session can be restored on restart.
+1. **`teardownSession(id, { deleteData: true })`** — Elimina los datos de la base de datos. Utilizado para: cierre de sesión 401, número de teléfono no coincidente, solicitud de desconexión, timeout de QR, cierre de conexión antes del QR. La sesión no puede restaurarse.
+2. **`teardownSession(id, { deleteData: false })`** — Preserva los datos de la base de datos. Utilizado para: apagado ordenado, preparación de reconexión. La sesión puede restaurarse al reiniciar.
 
-## Disconnection Decision Table
+## Tabla de Decisiones de Desconexión
 
-Every call site that tears down a session goes through `teardownSession`. Here's when each mode is used:
+Cada sitio de invocación que finaliza una sesión pasa por `teardownSession`. A continuación se detalla cuándo se utiliza cada modo:
 
 ```mermaid
 flowchart TD
-    A[Session needs teardown] --> B{Should data survive restart?}
+    A[La sesión necesita finalización] --> B{¿Deben sobrevivir los datos al reinicio?}
     B -->|No| C[teardown deleteData: true]
-    B -->|Yes| D[teardown deleteData: false]
+    B -->|Sí| D[teardown deleteData: false]
 
-    C --> C1[401: logged out]
-    C --> C2[Phone number mismatch]
-    C --> C3[Disconnect request]
-    C --> C4[QR timeout - no valid session yet]
-    C --> C5[Connection close before QR]
+    C --> C1[401: sesión cerrada]
+    C --> C2[Número de teléfono no coincide]
+    C --> C3[Solicitud de desconexión]
+    C --> C4[Timeout de QR - aún no hay sesión válida]
+    C --> C5[Cierre de conexión antes del QR]
 
-    D --> D1[Graceful shutdown - preserve for restore]
-    D --> D2[createConnection replacing existing session]
+    D --> D1[Apagado ordenado - preservar para restaurar]
+    D --> D2[createConnection reemplazando sesión existente]
 ```
 
-| Trigger | `deleteData` | Reason |
+| Disparador | `deleteData` | Motivo |
 |---------|-------------|--------|
-| Disconnect request | `true` | User explicitly requested disconnect |
-| 401 logout | `true` | Phone explicitly logged out, creds are invalid |
-| Phone mismatch | `true` | Wrong phone, must not restore |
-| QR timeout (30s) | `true` | No valid session established yet |
-| Connection close before QR | `true` | No valid session established yet |
-| Graceful shutdown (`destroy()`) | `false` | Must survive container restart |
-| `createConnection` replacing existing | `false` | Credentials may still be valid for reconnect |
-| Reconnection scheduling (close event) | Neither | No teardown — just schedules reconnect |
+| Solicitud de desconexión | `true` | El usuario solicitó la desconexión explícitamente |
+| Cierre de sesión 401 | `true` | El teléfono cerró sesión explícitamente, las credenciales son inválidas |
+| Número de teléfono no coincide | `true` | Teléfono incorrecto, no debe restaurarse |
+| Timeout de QR (60s) | `true` | Aún no se estableció una sesión válida |
+| Cierre de conexión antes del QR | `true` | Aún no se estableció una sesión válida |
+| Apagado ordenado (`destroy()`) | `false` | Debe sobrevivir al reinicio del contenedor |
+| `createConnection` reemplazando existente | `false` | Las credenciales pueden seguir siendo válidas para reconectar |
+| Programación de reconexión (evento close) | Ninguno | Sin teardown — solo programa la reconexión |
 
-## Sequence Diagrams
+## Diagramas de Secuencia
 
-### Fresh Connection (QR Scan)
+### Conexión Nueva (Escaneo de QR)
 
 ```mermaid
 sequenceDiagram
@@ -88,23 +88,23 @@ sequenceDiagram
     participant WS as WebSocket
 
     BOT->>MGR: createConnection(sessionId)
-    MGR->>MGR: teardownSession(id, deleteData: false) if existing
-    MGR->>DB: loadOrCreateAuthState() — load or init creds
+    MGR->>MGR: teardownSession(id, deleteData: false) si existe
+    MGR->>DB: loadOrCreateAuthState() — cargar o iniciar creds
     MGR->>DB: SqliteKeyStore.loadFromDB()
     MGR->>BA: makeWASocket(creds, keys)
-    BA->>WS: connect to WhatsApp servers
-    WS-->>BA: QR code
+    BA->>WS: conectar a servidores de WhatsApp
+    WS-->>BA: código QR
     BA-->>MGR: connection.update { qr }
     MGR-->>BOT: { qrCode }
-    Note over BOT: User scans QR
+    Note over BOT: El usuario escanea el QR
     WS-->>BA: connection.open
     BA-->>MGR: connection.update { connection: "open" }
     MGR->>DB: saveCredentials()
     MGR->>DB: updateSessionStatus("connected")
-    MGR-->>MGR: emit CONNECTED
+    MGR-->>MGR: emitir CONNECTED
 ```
 
-### Reconnection After Restart
+### Reconexión Tras Reinicio
 
 ```mermaid
 sequenceDiagram
@@ -115,8 +115,8 @@ sequenceDiagram
 
     BOT->>MGR: restoreSessions()
     MGR->>DB: SELECT * FROM whatsapp_sessions
-    loop For each session with creds
-        MGR->>DB: loadOrCreateAuthState() — load saved creds
+    loop Para cada sesión con creds
+        MGR->>DB: loadOrCreateAuthState() — cargar creds guardadas
         MGR->>DB: SqliteKeyStore.loadFromDB()
         MGR->>BA: makeWASocket(savedCreds, savedKeys)
         BA-->>MGR: connection.update { connection: "open" }
@@ -125,7 +125,7 @@ sequenceDiagram
     end
 ```
 
-### Connection Close + Reconnection
+### Cierre de Conexión + Reconexión
 
 ```mermaid
 sequenceDiagram
@@ -135,9 +135,9 @@ sequenceDiagram
 
     BA-->>MGR: connection.update { connection: "close", statusCode: 428 }
     MGR->>MGR: reconnectAttempts++
-    MGR->>MGR: Schedule reconnect (2^attempts delay, max 60s)
-    Note over MGR: After delay...
-    MGR->>DB: loadOrCreateAuthState() — load saved creds
+    MGR->>MGR: Programar reconexión (retardo 2^intentos, máx. 60s)
+    Note over MGR: Tras el retardo...
+    MGR->>DB: loadOrCreateAuthState() — cargar creds guardadas
     MGR->>DB: SqliteKeyStore.loadFromDB()
     MGR->>BA: makeWASocket(savedCreds)
     BA-->>MGR: connection.update { connection: "open" }
@@ -145,7 +145,7 @@ sequenceDiagram
     MGR->>DB: updateSessionStatus("connected")
 ```
 
-### 401 Logout (Permanent)
+### Cierre de Sesión 401 (Permanente)
 
 ```mermaid
 sequenceDiagram
@@ -155,16 +155,16 @@ sequenceDiagram
 
     BA-->>MGR: connection.update { connection: "close", statusCode: 401 }
     MGR->>MGR: teardownSession(id, { deleteData: true, reason: "logged_out" })
-    MGR->>MGR: cancel reconnect timers
-    MGR->>MGR: flush pending key writes
-    MGR->>MGR: close WebSocket
+    MGR->>MGR: cancelar temporizadores de reconexión
+    MGR->>MGR: vaciar escrituras de claves pendientes
+    MGR->>MGR: cerrar WebSocket
     MGR->>DB: DELETE FROM whatsapp_session_keys WHERE sessionId = ?
     MGR->>DB: DELETE FROM whatsapp_sessions WHERE id = ?
-    MGR->>MGR: remove from sessions map
-    MGR-->>MGR: emit DISCONNECTED { reason: "logged_out" }
+    MGR->>MGR: eliminar del mapa de sesiones
+    MGR-->>MGR: emitir DISCONNECTED { reason: "logged_out" }
 ```
 
-### Disconnect Request
+### Solicitud de Desconexión
 
 ```mermaid
 sequenceDiagram
@@ -174,16 +174,16 @@ sequenceDiagram
 
     BOT->>MGR: disconnectSession(sessionId)
     MGR->>MGR: teardownSession(id, { deleteData: true })
-    MGR->>MGR: cancel reconnect timers
-    MGR->>MGR: flush pending key writes
-    MGR->>MGR: close WebSocket
+    MGR->>MGR: cancelar temporizadores de reconexión
+    MGR->>MGR: vaciar escrituras de claves pendientes
+    MGR->>MGR: cerrar WebSocket
     MGR->>DB: DELETE FROM whatsapp_session_keys WHERE sessionId = ?
     MGR->>DB: DELETE FROM whatsapp_sessions WHERE id = ?
-    MGR->>MGR: remove from sessions map
-    MGR-->>BOT: void
+    MGR->>MGR: eliminar del mapa de sesiones
+    MGR-->>BOT: vacío
 ```
 
-### Graceful Shutdown
+### Apagado Ordenado
 
 ```mermaid
 sequenceDiagram
@@ -192,51 +192,53 @@ sequenceDiagram
     participant MGR as BaileysConnectionManager
     participant DB as SQLite
 
-    SIG->>BOT: shutdown signal
+    SIG->>BOT: señal de apagado
     BOT->>MGR: destroy()
-    loop For each active session
+    loop Para cada sesión activa
         MGR->>MGR: teardownSession(id, { deleteData: false })
-        MGR->>MGR: cancel reconnect timers
-        MGR->>MGR: flush pending key writes
-        MGR->>MGR: close WebSocket
+        MGR->>MGR: cancelar temporizadores de reconexión
+        MGR->>MGR: vaciar escrituras de claves pendientes
+        MGR->>MGR: cerrar WebSocket
         MGR->>DB: UPDATE sessions SET status = "disconnected"
-        Note over DB: Data preserved for restore on next start
+        Note over DB: Datos preservados para restaurar en el próximo inicio
     end
 ```
 
-## Key Store Flush Pipeline
+## Canalización de Flush del Almacén de Claves
 
-Signal protocol keys are not written to DB immediately — they're batched and flushed every 2 seconds.
+Las claves del protocolo Signal no se escriben en la base de datos inmediatamente: se agrupan en lotes y se persisten cada 2 segundos.
 
+```mermaid
+flowchart TB
+    A["Baileys creds.update"] --> B["SqliteKeyStore.set()"]
+    B --> C["cache.set(key, value)"]
+    B --> D["mutationQueue.push({type, id, value, operation})"]
+
+    E["⏱️ Cada 2s o cola > 1000"] --> F["flushMutations()"]
+    F --> G["batch = mutationQueue.splice(0)"]
+    G --> H["UPSERT / DELETE en SQLite"]
+    H --> I{"¿Error?"}
+    I -->|SQLITE_READONLY_DBMOVED| J["Reintentar hasta 3 veces"]
+    J -->|Falló 3 veces| K["🗑️ Descartar cola"]
+    I -->|Otro error| L["Re-encolar lote<br/>reintentar próximo intervalo"]
+    I -->|OK| M["✅ Flush exitoso"]
+
+    N["Finalización de sesión"] --> O["forceFlush()"]
+    O --> P["destroy()<br/>(detiene intervalo de flush)"]
+
+    style K fill:#ffcccc,stroke:#ff0000
+    style M fill:#ccffcc,stroke:#00cc00
 ```
-Baileys creds.update
-    → SqliteKeyStore.set()
-        → cache.set(key, value)
-        → mutationQueue.push({ type, id, value, operation })
 
-Every 2 seconds (or when queue > 1000):
-    → flushMutations()
-        → batch = mutationQueue.splice(0)
-        → for each upsert: INSERT ... ON CONFLICT DO UPDATE
-        → for each delete: DELETE WHERE ...
-        → on error:
-            → SQLITE_READONLY_DBMOVED: retry up to 3x, then discard queue
-            → other errors: re-queue batch, retry next interval
+## Protección contra SQLITE_READONLY_DBMOVED
 
-On session teardown:
-    → SqliteKeyStore.forceFlush()
-    → SqliteKeyStore.destroy() — stops flush interval
-```
+La aplicación establece `PRAGMA journal_mode=DELETE` al momento de la conexión para evitar que el auto-checkpoint de WAL modifique el inodo del archivo de la base de datos en montajes enlazados de Docker sobre macOS (osxfs).
 
-## SQLITE_READONLY_DBMOVED Protection
+Como medida de defensa en profundidad, `SqliteKeyStore.flushMutations()` detecta específicamente los errores DBMOVED:
 
-The app sets `PRAGMA journal_mode=DELETE` at connection time to prevent WAL auto-checkpoint from changing the database file inode on macOS Docker bind mounts (osxfs).
+1. En la primera ocurrencia: registra el error e intenta `PRAGMA journal_mode=DELETE` para recuperar la conexión
+2. Hasta 3 reintentos: continúa intentando los flushes
+3. Tras 3 fallas consecutivas: descarta la cola de mutaciones (evita el crecimiento ilimitado y el cierre por rechazo de promesa no manejado) y registra `fatal`
+4. En un flush exitoso: reinicia el contador de errores consecutivos
 
-As defense-in-depth, `SqliteKeyStore.flushMutations()` detects DBMOVED errors specifically:
-
-1. On first occurrence: log error, attempt `PRAGMA journal_mode=DELETE` to recover the connection
-2. Up to 3 retries: continue attempting flushes
-3. After 3 consecutive failures: discard the mutation queue (prevents unbounded growth and unhandled rejection crash), log `fatal`
-4. On successful flush: reset the consecutive error counter
-
-This prevents the death spiral that crashed the process before: mutations piling up, each flush failing with DBMOVED, eventually causing an unhandled promise rejection.
+Esto evita la espiral de fallos que anteriormente provocaba el cierre del proceso: las mutaciones se acumulaban, cada flush fallaba con DBMOVED y finalmente se producía un rechazo de promesa no manejado.

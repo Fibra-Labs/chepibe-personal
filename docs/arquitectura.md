@@ -50,11 +50,11 @@ sequenceDiagram
 ```
 
 **Filtros aplicados:**
-- Solo `notify` (mensajes nuevos) o `requestId` (offline)
+- Solo `notify` (mensajes nuevos) o `requestId` (offline). Excepción: mensajes `append` que contienen audio también se procesan
 - Solo `audioMessage` o `pttMessage`
 - Mensajes propios (`fromMe`) con audio también se procesan
 - **Deduplicación**: Cache 24h con key `${phoneNumber}:${msgId}`
-- **LID handling**: Si el remitente es `@lid`, se usa el `phoneNumber` de la sesión del usuario conectado
+- **Número remitente**: Se extrae del `participant` (grupos) o `sender` (DMs). Para LIDs (`@lid`), el ID crudo se usa como identificador en el mensaje de respuesta
 
 > **Nota**: Los filtros solo usan IDs de mensaje para deduplicación. **Ningún contenido de mensaje se almacena.**
 
