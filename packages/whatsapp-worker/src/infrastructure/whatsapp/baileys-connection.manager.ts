@@ -37,7 +37,6 @@ function createBaileysLogger(logger: Logger): any {
         error: (...args: any[]) => logger.error({ baileys: true }, args.map(serializeBaileysArg).join(' ')),
         warn: (...args: any[]) => { if (DEBUG) logger.warn({ baileys: true }, args.map(serializeBaileysArg).join(' ')); },
         debug: (...args: any[]) => { if (DEBUG) logger.debug({ baileys: true }, args.map(serializeBaileysArg).join(' ')); },
-        trace: (...args: any[]) => {},
         fatal: (...args: any[]) => logger.fatal({ baileys: true }, args.map(serializeBaileysArg).join(' ')),
         child: () => createBaileysLogger(logger),
         level: DEBUG ? 'trace' as const : 'silent' as const,
@@ -630,18 +629,6 @@ export class BaileysConnectionManager {
     // Session teardown (single entry point for all cleanup)
     // ----------------------------------------------------------------
 
-    /**
-     * Tears down a session: flushes pending key writes, closes the socket,
-     * cleans up internal maps, optionally deletes DB data, and emits events.
-     *
-     * This is the ONLY method that should clean up a session. All call sites
-     * go through here so cleanup is consistent.
-     *
-     * @param deleteData - If true, deletes session data from the DB so it
-     *   cannot be restored on restart. Use false for graceful shutdown,
-     *   reconnects, and internal teardowns where data should be preserved.
-     * @param reason - Optional reason string included in the DISCONNECTED event.
-     */
     private async teardownSession(
         sessionId: string,
         options: { deleteData: boolean; reason?: string } = { deleteData: true },

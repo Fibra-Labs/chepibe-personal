@@ -62,7 +62,7 @@ Baileys usa el Signal Protocol para encriptación E2E. Las keys se almacenan en 
 ```mermaid
 flowchart TB
     A["Baileys WebSocket"] <--> B["makeCacheableSignalKeyStore<br/>(caching wrapper)"]
-    B <--> C["SqliteKeyStore<br/>(inner store)")
+    B <--> C["SqliteKeyStore<br/>(inner store)"]
     C <--> D["SQLite<br/>whatsapp_session_keys"]
 
     style D fill:#e8f4f8,stroke:#333
