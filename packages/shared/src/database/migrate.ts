@@ -1,13 +1,9 @@
 import { migrate } from "drizzle-orm/libsql/migrator";
 import type { Db } from "./client.js";
 
-let hasRunMigrations = false;
-
 export async function runMigrations(db: Db, migrationsFolder = "./drizzle"): Promise<boolean> {
-  if (hasRunMigrations) return true;
-  hasRunMigrations = true;
-  
   try {
+    // Let Drizzle handle the state internally!
     await migrate(db as any, { migrationsFolder });
     return true;
   } catch (err) {

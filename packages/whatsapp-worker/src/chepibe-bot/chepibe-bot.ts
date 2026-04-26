@@ -5,6 +5,7 @@ import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import pino from 'pino';
 import type { Logger } from 'pino';
+import type { Client } from '@libsql/client';
 import { createDb, runMigrations } from '@chepibe-personal/shared';
 import { GroqClient } from '../infrastructure/groq/groq-client.js';
 import { AudioHandler } from '../infrastructure/groq/audio-handler.js';
@@ -17,6 +18,7 @@ export class ChepibeBot extends EventEmitter {
 	private readonly options: ChepibeBotOptions;
 	private readonly logger: Logger;
 	private connectionManager: BaileysConnectionManager | null = null;
+	private dbClient: Client | null = null;
 
 	constructor(options: ChepibeBotOptions) {
 		super();
@@ -42,9 +44,13 @@ export class ChepibeBot extends EventEmitter {
 		}
 
 		const { db, client } = await createDb({ url: databaseUrl, authToken: databasePassword });
+		this.dbClient = client;
 
 		this.logger.info('Running database migrations...');
 		let migrationsPath = this.options.migrationsPath;
+
+		this.logger.info(`THE MIGRATIONS PATH IS ${migrationsPath}`);
+
 		if (!migrationsPath) {
 			try {
 				const require = createRequire(import.meta.url);
@@ -58,6 +64,20 @@ export class ChepibeBot extends EventEmitter {
 				}
 			}
 		}
+
+
+// --- ADD THESE 5 LINES HERE ---
+		this.logger.info(`FINAL RESOLVED MIGRATIONS PATH: ${migrationsPath}`);
+		if (!fs.existsSync(migrationsPath)) {
+			throw new Error(`CRITICAL STOP: Migrations folder does not exist at ${migrationsPath}`);
+		}
+		const migrationFiles = fs.readdirSync(migrationsPath).filter(f => f.endsWith('.sql'));
+		this.logger.info(`Found ${migrationFiles.length} .sql files in migrations folder.`);
+		if (migrationFiles.length === 0) {
+			throw new Error(`CRITICAL STOP: Migrations folder exists, but has NO .sql files!`);
+		}
+		// ------------------------------
+
 		await runMigrations(db, migrationsPath);
 		this.logger.info('Database migrations completed');
 
@@ -155,6 +175,16 @@ export class ChepibeBot extends EventEmitter {
 		if (this.connectionManager) {
 			await this.connectionManager.destroy();
 			this.connectionManager = null;
+		}
+
+		if (this.dbClient) {
+			try {
+				this.dbClient.close();
+			} catch (err) {
+				this.logger.error({ err }, 'Error closing database client');
+			} finally {
+				this.dbClient = null;
+			}
 		}
 	}
 }
