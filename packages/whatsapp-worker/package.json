@@ -22,7 +22,7 @@
     "lint": "oxlint src/"
   },
   "dependencies": {
-    "@chepibe-personal/shared": "0.1.0",
+    "@chepibe-personal/shared": "workspace:*",
     "@whiskeysockets/baileys": "^7.0.0-rc.9",
     "groq-sdk": "^0.37.0",
     "node-cache": "^5.1.2",
