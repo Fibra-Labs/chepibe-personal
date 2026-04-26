@@ -1,8 +1,10 @@
 {
   "name": "@chepibe-personal/whatsapp-worker",
   "version": "0.1.0",
-  "private": true,
   "license": "AGPL-3.0",
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
   "description": "WhatsApp Baileys worker — receives audio, transcribes via Groq, sends back summary",
   "main": "./dist/index.mjs",
   "files": ["dist", "drizzle"],
@@ -15,11 +17,12 @@
   "scripts": {
     "dev": "tsx watch --env-file=../../.env src/main.ts",
     "build": "tsup",
+    "prepublishOnly": "pnpm build",
     "start": "node dist/main.mjs",
     "lint": "oxlint src/"
   },
   "dependencies": {
-    "@chepibe-personal/shared": "workspace:*",
+    "@chepibe-personal/shared": "0.1.0",
     "@whiskeysockets/baileys": "^7.0.0-rc.9",
     "groq-sdk": "^0.37.0",
     "node-cache": "^5.1.2",

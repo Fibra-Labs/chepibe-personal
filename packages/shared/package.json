@@ -1,8 +1,10 @@
 {
   "name": "@chepibe-personal/shared",
   "version": "0.1.0",
-  "private": true,
   "license": "AGPL-3.0",
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
   "description": "Shared database schema, types, and events for chepibe-personal",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
@@ -22,6 +24,7 @@
   },
   "scripts": {
     "build": "tsup",
+    "prepublishOnly": "pnpm build",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
