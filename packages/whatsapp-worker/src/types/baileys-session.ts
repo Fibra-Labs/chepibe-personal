@@ -8,4 +8,5 @@ export interface BaileysSession {
 	qrCode?: string;
 	phoneNumber?: string;
 	createdAt: Date;
+	lastActivityAt: Date;
 }

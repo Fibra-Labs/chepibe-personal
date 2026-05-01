@@ -99,6 +99,12 @@ export class ChepibeBot extends EventEmitter {
 		this.connectionManager.on('DISCONNECTED', (data: { sessionId: string; reason: string }) => {
 			this.emit('DISCONNECTED', data);
 		});
+		this.connectionManager.on('RECOVERABLE_DISCONNECT', (data: { sessionId: string; reason: string; statusCode: number }) => {
+			this.emit('RECOVERABLE_DISCONNECT', data);
+		});
+		this.connectionManager.on('PERMANENT_DISCONNECT', (data: { sessionId: string; reason: string; statusCode: number }) => {
+			this.emit('PERMANENT_DISCONNECT', data);
+		});
 
 		this.logger.info('Restoring sessions from database...');
 		await this.connectionManager.restoreSessions();

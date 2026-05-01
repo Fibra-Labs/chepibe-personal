@@ -16,6 +16,11 @@
       "import": "./dist/index.mjs",
       "require": "./dist/index.js"
     },
+    "./events/disconnect-category": {
+      "types": "./dist/events/disconnect-category.d.ts",
+      "import": "./dist/events/disconnect-category.mjs",
+      "require": "./dist/events/disconnect-category.js"
+    },
     "./drizzle": "./drizzle",
     "./package.json": "./package.json"
   },

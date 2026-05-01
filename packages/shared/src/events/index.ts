@@ -2,6 +2,8 @@ export enum WhatsAppEvent {
   QR_READY = "QR_READY",
   CONNECTED = "CONNECTED",
   DISCONNECTED = "DISCONNECTED",
+  RECOVERABLE_DISCONNECT = "RECOVERABLE_DISCONNECT",
+  PERMANENT_DISCONNECT = "PERMANENT_DISCONNECT",
   LOGGED_OUT = "LOGGED_OUT",
   VOICE_MESSAGE_RECEIVED = "VOICE_MESSAGE_RECEIVED",
   MESSAGE_RECEIVED = "MESSAGE_RECEIVED",
@@ -78,10 +80,24 @@ export interface SendAudioMessagePayload {
   mimetype: string;
 }
 
+export interface RecoverableDisconnectPayload {
+  sessionId: string;
+  reason: string;
+  statusCode: number;
+}
+
+export interface PermanentDisconnectPayload {
+  sessionId: string;
+  reason: string;
+  statusCode: number;
+}
+
 export type WhatsAppEventPayloadMap = {
   [WhatsAppEvent.QR_READY]: QrReadyPayload;
   [WhatsAppEvent.CONNECTED]: ConnectedPayload;
   [WhatsAppEvent.DISCONNECTED]: DisconnectedPayload;
+  [WhatsAppEvent.RECOVERABLE_DISCONNECT]: RecoverableDisconnectPayload;
+  [WhatsAppEvent.PERMANENT_DISCONNECT]: PermanentDisconnectPayload;
   [WhatsAppEvent.LOGGED_OUT]: LoggedOutPayload;
   [WhatsAppEvent.VOICE_MESSAGE_RECEIVED]: VoiceMessageReceivedPayload;
   [WhatsAppEvent.MESSAGE_RECEIVED]: MessageReceivedPayload;
