@@ -14,6 +14,7 @@ import type { Client } from '@libsql/client';
 import type { Logger } from 'pino';
 import type { Db } from '@chepibe-personal/shared';
 import { eq, whatsappSessionKeys, whatsappSessions } from '@chepibe-personal/shared';
+import { classifyDisconnect, DisconnectCategory as DisconnectCategoryEnum } from '@chepibe-personal/shared';
 import type { BaileysSession } from '../../types/baileys-session.js';
 import type { SessionStatus } from '../../types/session-status.js';
 import type { AudioHandler } from '../groq/audio-handler.js';
@@ -195,12 +196,13 @@ export class BaileysConnectionManager {
             defaultQueryTimeoutMs: 60000,
         });
 
-        const session: BaileysSession = {
-            sessionId,
-            socket,
-            status: 'pending' as SessionStatus,
-            createdAt: new Date(),
-        };
+const session: BaileysSession = {
+			sessionId,
+			socket,
+			status: 'pending' as SessionStatus,
+			createdAt: new Date(),
+			lastActivityAt: new Date(),
+		};
         this.sessions.set(sessionId, session);
 
         socket.ev.on('messages.upsert', (m) => {
@@ -257,16 +259,19 @@ export class BaileysConnectionManager {
                     await this.updateSessionStatus(sessionId, 'connected', session.phoneNumber);
                     this.reconnectAttempts.delete(sessionId);
 
-                    this.eventEmitter.emit('CONNECTED', { sessionId, phoneNumber: session.phoneNumber });
-
                     // Validate the session is actually authenticated (device not unlinked)
-                    void this.validateSession(sessionId, socket);
+                    const isValid = await this.validateSession(sessionId, socket);
+
+                    if (isValid) {
+                        this.eventEmitter.emit('CONNECTED', { sessionId, phoneNumber: session.phoneNumber });
+                    }
                 }
 
                 if (connection === 'close') {
                     const statusCode = (lastDisconnect?.error as any)?.output?.statusCode;
                     const errorMsg = (lastDisconnect?.error as any)?.message || 'unknown';
-                    this.logger.info({ sessionId, statusCode, errorMsg }, 'Connection closed');
+                    const category = classifyDisconnect(statusCode ?? 0, errorMsg);
+                    this.logger.info({ sessionId, statusCode, errorMsg, category }, 'Connection closed');
 
                     if (statusCode === 515 || errorMsg.includes('restart')) {
                         this.logger.info({ sessionId, statusCode }, '515 restart required, reconnecting with saved creds');
@@ -294,6 +299,7 @@ export class BaileysConnectionManager {
                         }
                     } else if (statusCode === 401) {
                         this.logger.info({ sessionId }, 'Logged out (401), clearing session');
+                        this.eventEmitter.emit('PERMANENT_DISCONNECT', { sessionId, reason: errorMsg, statusCode: statusCode ?? 0 });
                         await this.teardownSession(sessionId, { deleteData: true, reason: 'logged_out' });
                         if (!hasResolved) {
                             hasResolved = true;
@@ -303,6 +309,11 @@ export class BaileysConnectionManager {
                     } else if (!hasResolved) {
                         hasResolved = true;
                         clearTimeout(timeout);
+                        if (category === DisconnectCategoryEnum.Recoverable) {
+                            this.eventEmitter.emit('RECOVERABLE_DISCONNECT', { sessionId, reason: errorMsg, statusCode: statusCode ?? 0 });
+                        } else {
+                            this.eventEmitter.emit('PERMANENT_DISCONNECT', { sessionId, reason: errorMsg, statusCode: statusCode ?? 0 });
+                        }
                     void this.teardownSession(sessionId, { deleteData: true, reason: 'connection_closed' });
                         reject(new Error(`Connection closed before QR: statusCode=${statusCode} error=${errorMsg}`));
                     }
@@ -357,12 +368,13 @@ export class BaileysConnectionManager {
 
         let session = this.sessions.get(sessionId);
         if (!session) {
-            session = {
-                sessionId,
-                socket,
-                status: 'pending' as SessionStatus,
-                createdAt: new Date(),
-            };
+session = {
+				sessionId,
+				socket,
+				status: 'pending' as SessionStatus,
+				createdAt: new Date(),
+				lastActivityAt: new Date(),
+			};
             this.sessions.set(sessionId, session);
         } else {
             session.socket = socket;
@@ -447,37 +459,46 @@ export class BaileysConnectionManager {
             await saveCredentials();
             await this.updateSessionStatus(sessionId, 'connected', session.phoneNumber);
 
-            this.eventEmitter.emit('CONNECTED', { sessionId, phoneNumber: session.phoneNumber });
-
             // Validate the session is actually authenticated (device not unlinked)
-            void this.validateSession(sessionId, session.socket);
+            const isValid = await this.validateSession(sessionId, session.socket);
 
-            const watchdog = setTimeout(() => {
-                const current = this.sessions.get(sessionId);
-                if (current && current.status === 'connected' && current.createdAt.getTime() > Date.now() - 35000) {
-                    this.logger.warn({ sessionId }, 'Connection may be degraded, forcing reconnect');
-                    void this.reconnectWithSavedCreds(sessionId);
-                }
-            }, 30000);
-            watchdog.unref();
+            if (isValid) {
+                this.eventEmitter.emit('CONNECTED', { sessionId, phoneNumber: session.phoneNumber });
+
+                const watchdog = setTimeout(() => {
+                    const current = this.sessions.get(sessionId);
+                    if (current && current.status === 'connected' && Date.now() - current.lastActivityAt.getTime() > 120000) {
+                        this.logger.warn({ sessionId }, 'Connection may be degraded, forcing reconnect');
+                        void this.reconnectWithSavedCreds(sessionId);
+                    }
+                }, 30000);
+                watchdog.unref();
+            }
         }
 
         if (connection === 'close') {
             const statusCode = (lastDisconnect?.error as any)?.output?.statusCode;
             const errorMsg = (lastDisconnect?.error as any)?.message || 'unknown';
             const loggedOut = statusCode === 401;
+            const category = classifyDisconnect(statusCode ?? 0, errorMsg);
 
-            this.logger.info({ sessionId, statusCode, errorMsg }, 'Connection closed (reconnect handler)');
+            this.logger.info({ sessionId, statusCode, errorMsg, category }, 'Connection closed (reconnect handler)');
 
             if (loggedOut) {
                 this.logger.info({ sessionId }, 'Logged out, clearing session');
+                this.eventEmitter.emit('PERMANENT_DISCONNECT', { sessionId, reason: errorMsg, statusCode: statusCode ?? 0 });
                 await this.teardownSession(sessionId, { deleteData: true, reason: 'logged_out' });
                 return;
             }
 
             const attempts = (this.reconnectAttempts.get(sessionId) ?? 0) + 1;
             if (attempts >= MAX_RECONNECT_ATTEMPTS) {
-                this.logger.warn({ sessionId, attempts }, 'Max reconnect attempts reached');
+                this.logger.warn({ sessionId, attempts, category }, 'Max reconnect attempts reached');
+                if (category === DisconnectCategoryEnum.Recoverable) {
+                    this.eventEmitter.emit('RECOVERABLE_DISCONNECT', { sessionId, reason: 'max_retries', statusCode: statusCode ?? 0 });
+                } else {
+                    this.eventEmitter.emit('PERMANENT_DISCONNECT', { sessionId, reason: 'max_retries', statusCode: statusCode ?? 0 });
+                }
                 // Preserve session data so user can try again later, but mark as disconnected
                 await this.teardownSession(sessionId, { deleteData: false, reason: 'max_retries' });
                 return;
@@ -502,8 +523,10 @@ export class BaileysConnectionManager {
     // ----------------------------------------------------------------
 
     private async handleMessage(m: any, sessionId: string): Promise<void> {
-        const session = this.sessions.get(sessionId);
-        if (!session || session.status !== 'connected') return;
+const session = this.sessions.get(sessionId);
+		if (!session || session.status !== 'connected') return;
+
+		session.lastActivityAt = new Date();
 
         if (session.phoneNumber !== this.allowedPhone) {
             this.logger.warn({ sessionId, phoneNumber: session.phoneNumber, allowedPhone: this.allowedPhone }, 'Session phone does not match ALLOWED_PHONE, skipping message processing');
