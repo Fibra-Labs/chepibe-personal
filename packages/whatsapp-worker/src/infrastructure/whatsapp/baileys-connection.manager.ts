@@ -326,6 +326,152 @@ const session: BaileysSession = {
      * Disconnect a session via API request.
      * Deletes session data so it cannot be restored.
      */
+    async requestPairingCode(sessionId: string, phoneNumber: string): Promise<string> {
+        await this.teardownSession(sessionId, { deleteData: true });
+
+        const { state, saveCredentials } = await this.loadOrCreateAuthState(sessionId);
+
+        const version = await this.getLatestVersion();
+        this.logger.info({ sessionId, version: version.join('.') }, 'Creating Baileys socket for pairing code');
+        const msgRetryCounterCache = new NodeCache();
+
+        const socket = makeWASocket({
+            version,
+            logger: createBaileysLogger(this.logger),
+            printQRInTerminal: false,
+            auth: {
+                creds: state.creds,
+                keys: makeCacheableSignalKeyStore(state.keys, createBaileysLogger(this.logger)),
+            },
+            msgRetryCounterCache,
+            defaultQueryTimeoutMs: 60000,
+        });
+
+        const session: BaileysSession = {
+            sessionId,
+            socket,
+            status: 'pending' as SessionStatus,
+            createdAt: new Date(),
+            lastActivityAt: new Date(),
+        };
+        this.sessions.set(sessionId, session);
+
+        socket.ev.on('messages.upsert', (m) => {
+            if (DEBUG) this.logger.debug({ sessionId, type: m.type, count: m.messages?.length }, 'messages.upsert received');
+            void this.handleMessage(m, sessionId);
+        });
+        socket.ev.on('creds.update', saveCredentials);
+
+        return new Promise((resolve, reject) => {
+            let hasResolved = false;
+
+            const timeout = setTimeout(() => {
+                if (!hasResolved) {
+                    hasResolved = true;
+                    this.logger.warn({ sessionId }, 'Timeout waiting for pairing code');
+                    void this.teardownSession(sessionId, { deleteData: true, reason: 'pairing_timeout' });
+                    reject(new Error('Timeout waiting for pairing code'));
+                }
+            }, 60000);
+
+            socket.ev.on('connection.update', async (update) => {
+                const { connection, qr, lastDisconnect } = update;
+
+                if (DEBUG) this.logger.debug({ sessionId, connection, hasQr: !!qr }, 'connection.update (pairing)');
+
+                if (qr && !hasResolved) {
+                    hasResolved = true;
+                    clearTimeout(timeout);
+                    try {
+                        const code = await socket.requestPairingCode(phoneNumber);
+                        this.logger.info({ sessionId }, 'Pairing code generated');
+                        resolve(code);
+                    } catch (err) {
+                        this.logger.error({ err, sessionId }, 'Failed to request pairing code');
+                        void this.teardownSession(sessionId, { deleteData: true, reason: 'pairing_code_failed' });
+                        reject(new Error('Failed to request pairing code'));
+                    }
+                }
+
+                if (connection === 'open') {
+                    this.logger.info({ sessionId }, 'Connection opened');
+                    session.status = 'connected' as SessionStatus;
+
+                    const userId = socket.user?.id;
+                    if (userId) {
+                        session.phoneNumber = userId.split('@')[0].split(':')[0];
+                    }
+
+                    if (!(await this.assertPhoneMatch(sessionId, session.phoneNumber))) {
+                        if (!hasResolved) {
+                            hasResolved = true;
+                            clearTimeout(timeout);
+                            reject(new Error(`Phone number mismatch. Expected: ${this.allowedPhone}, Got: ${session.phoneNumber}`));
+                        }
+                        return;
+                    }
+
+                    await saveCredentials();
+                    await this.updateSessionStatus(sessionId, 'connected', session.phoneNumber);
+                    this.reconnectAttempts.delete(sessionId);
+
+                    const isValid = await this.validateSession(sessionId, socket);
+
+                    if (isValid) {
+                        this.eventEmitter.emit('CONNECTED', { sessionId, phoneNumber: session.phoneNumber });
+                    }
+                }
+
+                if (connection === 'close') {
+                    const statusCode = (lastDisconnect?.error as any)?.output?.statusCode;
+                    const errorMsg = (lastDisconnect?.error as any)?.message || 'unknown';
+                    const category = classifyDisconnect(statusCode ?? 0, errorMsg);
+                    this.logger.info({ sessionId, statusCode, errorMsg, category }, 'Connection closed');
+
+                    if (statusCode === 515 || errorMsg.includes('restart')) {
+                        this.logger.info({ sessionId, statusCode }, '515 restart required, reconnecting with saved creds');
+                        await saveCredentials();
+                        try { await socket.end(undefined); } catch {}
+
+                        try {
+                            await this.reconnectWithSavedCreds(sessionId);
+                            const reconnected = this.sessions.get(sessionId);
+                            if (reconnected?.status === 'connected') {
+                                this.logger.info({ sessionId }, 'Reconnected successfully after 515');
+                            }
+                        } catch (err) {
+                            this.logger.error({ err, sessionId }, 'Failed to reconnect after 515');
+                            if (!hasResolved) {
+                                hasResolved = true;
+                                clearTimeout(timeout);
+                                reject(new Error('Failed to reconnect after pairing'));
+                            }
+                        }
+                    } else if (statusCode === 401) {
+                        this.logger.info({ sessionId }, 'Logged out (401), clearing session');
+                        this.eventEmitter.emit('PERMANENT_DISCONNECT', { sessionId, reason: errorMsg, statusCode: statusCode ?? 0 });
+                        await this.teardownSession(sessionId, { deleteData: true, reason: 'logged_out' });
+                        if (!hasResolved) {
+                            hasResolved = true;
+                            clearTimeout(timeout);
+                            reject(new Error('Logged out'));
+                        }
+                    } else if (!hasResolved) {
+                        hasResolved = true;
+                        clearTimeout(timeout);
+                        if (category === DisconnectCategoryEnum.Recoverable) {
+                            this.eventEmitter.emit('RECOVERABLE_DISCONNECT', { sessionId, reason: errorMsg, statusCode: statusCode ?? 0 });
+                        } else {
+                            this.eventEmitter.emit('PERMANENT_DISCONNECT', { sessionId, reason: errorMsg, statusCode: statusCode ?? 0 });
+                        }
+                    void this.teardownSession(sessionId, { deleteData: true, reason: 'connection_closed' });
+                        reject(new Error(`Connection closed before pairing: statusCode=${statusCode} error=${errorMsg}`));
+                    }
+                }
+            });
+        });
+    }
+
     async disconnectSession(sessionId: string): Promise<void> {
         await this.teardownSession(sessionId, { deleteData: true });
     }
@@ -333,7 +479,7 @@ const session: BaileysSession = {
     async destroy(): Promise<void> {
         this.stopHeartbeat();
         for (const [sessionId] of this.sessions) {
-            await this.teardownSession(sessionId, { deleteData: false });
+        await this.teardownSession(sessionId, { deleteData: true });
         }
         this.keyStores.clear();
         for (const [, timeout] of this.reconnectTimeouts) {

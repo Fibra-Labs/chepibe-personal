@@ -170,6 +170,16 @@ export class ChepibeBot extends EventEmitter {
 		return this.connectionManager.getSessions();
 	}
 
+	async requestPairingCode(sessionId: string, phoneNumber: string): Promise<{ code: string; sessionId: string }> {
+		if (!this.connectionManager) {
+			throw new Error('Bot not started. Call start() first.');
+		}
+
+		const id = sessionId || `session_${Date.now()}`;
+		const code = await this.connectionManager.requestPairingCode(id, phoneNumber);
+		return { code, sessionId: id };
+	}
+
 	async disconnect(sessionId: string): Promise<void> {
 		if (!this.connectionManager) {
 			throw new Error('Bot not started. Call start() first.');
