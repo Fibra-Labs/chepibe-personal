@@ -1,5 +1,5 @@
 #!/bin/sh
-# Post-install patches for Baileys v7.0.0-rc.9
+# Post-install patches for Baileys v7.0.0-rc10
 # Fixes known bugs in the release version
 
 set -e

@@ -287,7 +287,7 @@ Causado por serialización incorrecta de Buffers. Solución: usar `BufferJSON.re
 
 ## Patches (Solución a Bugs Conocidos)
 
-Baileys v7.0.0-rc.9, la versión actual de esta librería, contiene errores conocidos que hacen que la conexión con WhatsApp sea inestable o inutilizable. Para solucionarlo, `packages/whatsapp-worker/patch-baileys.sh` aplica automáticamente los siguientes cambios sobre la librería en `node_modules` después de ejecutar `pnpm install`.
+Baileys v7.0.0-rc10, la versión actual de esta librería, aún contiene algunos errores conocidos. Para solucionarlos, `packages/whatsapp-worker/patch-baileys.sh` aplica automáticamente los siguientes cambios sobre la librería en `node_modules` después de ejecutar `pnpm install`.
 
 ### Parche 1: Eliminar `lidDbMigrated` del payload
 **Archivo:** `lib/Utils/validate-connection.js`  
