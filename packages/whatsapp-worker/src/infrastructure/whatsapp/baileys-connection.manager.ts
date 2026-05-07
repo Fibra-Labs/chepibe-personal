@@ -60,6 +60,7 @@ export class BaileysConnectionManager {
     private readonly allowedPhone: string;
     private cachedVersion: { version: readonly number[]; fetchedAt: number } | null = null;
     private readonly VERSION_CACHE_TTL_MS = 300000;
+    private readonly lidToPhoneCache = new Map<string, string>();
 
     constructor(
         private db: Db,
@@ -274,10 +275,12 @@ export class BaileysConnectionManager {
 
                 if (connection === 'open') {
                     const err = await this.onConnectionOpen(sessionId, socket, session, saveCredentials);
-                    if (err && !hasResolved) {
-                        hasResolved = true;
-                        clearTimeout(timeout);
-                        reject(err);
+                    if (err) {
+                        if (!hasResolved) {
+                            hasResolved = true;
+                            clearTimeout(timeout);
+                            reject(err);
+                        }
                     }
                 }
 
@@ -286,14 +289,14 @@ export class BaileysConnectionManager {
                         closeErrorPrefix: 'Connection closed before pairing',
                         reconnectErrorMsg: 'Failed to reconnect after pairing',
                     });
-                    if (result.resolved && !hasResolved) {
+                    if (!hasResolved) {
                         hasResolved = true;
                         clearTimeout(timeout);
-                        resolve(result.resolved);
-                    } else if (result.rejected && !hasResolved) {
-                        hasResolved = true;
-                        clearTimeout(timeout);
-                        reject(result.rejected);
+                        if (result.resolved) {
+                            resolve(result.resolved);
+                        } else if (result.rejected) {
+                            reject(result.rejected);
+                        }
                     }
                 }
             });
@@ -623,9 +626,38 @@ session = {
     // Message handling
     // ----------------------------------------------------------------
 
+    private async resolveLidToPhone(sessionId: string, lid: string): Promise<string | null> {
+        const cached = this.lidToPhoneCache.get(lid);
+        if (cached) return cached;
+
+        const keyStore = this.keyStores.get(sessionId);
+        if (!keyStore) return null;
+
+        try {
+            const lidJid = `${lid}@lid`;
+            const reverseKey = `${lidJid}_reverse`;
+
+            const entries = await keyStore.get('lid-mapping' as any, [reverseKey]);
+            const value = entries[reverseKey];
+
+            if (typeof value === 'string') {
+                const phone = value.split('@')[0].split(':')[0];
+                this.lidToPhoneCache.set(lid, phone);
+                this.logger.info({ lid, phone }, 'LID resolved via key store reverse mapping');
+                return phone;
+            }
+
+            this.logger.info({ lid }, 'No reverse lid-mapping found for LID');
+            return null;
+        } catch (err) {
+            this.logger.warn({ err, lid }, 'Failed to resolve LID via key store');
+            return null;
+        }
+    }
+
     private async handleMessage(m: any, sessionId: string): Promise<void> {
-const session = this.sessions.get(sessionId);
-		if (!session || session.status !== 'connected') return;
+        const session = this.sessions.get(sessionId);
+        if (!session || session.status !== 'connected') return;
 
 		session.lastActivityAt = new Date();
 
@@ -665,6 +697,9 @@ const session = this.sessions.get(sessionId);
             let phoneNumber: string;
             if (isFromMe) {
                 phoneNumber = session.phoneNumber || rawNumber;
+            } else if (participantSource.includes('@lid') && !participantSource.includes('@s.whatsapp.net')) {
+                const resolved = await this.resolveLidToPhone(sessionId, rawNumber);
+                phoneNumber = resolved || rawNumber;
             } else {
                 phoneNumber = rawNumber;
             }

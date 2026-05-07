@@ -1,7 +1,7 @@
 import { awaitBot } from '$lib/server/bot';
 import { env } from '$env/dynamic/private';
 import pino from 'pino';
-import type { ServerLoad } from '@sveltejs/kit';
+import type { Actions, ServerLoad } from '@sveltejs/kit';
 
 const logger = pino({
 	level: env.DEBUG === 'true' ? 'debug' : 'error',
@@ -26,12 +26,33 @@ export const load: ServerLoad = async ({ url }) => {
 				width: 300,
 				margin: 2
 			});
-			return { qr: qrDataUrl, alreadyConnected: false };
+			return { qr: qrDataUrl, alreadyConnected: false, sessionId: data.sessionId };
 		}
 
-		return { qr: null, alreadyConnected: false };
+		return { qr: null, alreadyConnected: false, sessionId: data.sessionId };
 	} catch (err) {
 		logger.error({ err }, 'QR page load failed');
 		return { qr: null, alreadyConnected: false };
 	}
 };
+
+export const actions = {
+	default: async () => {
+		const phoneNumber = env.ALLOWED_PHONE;
+
+		if (!phoneNumber) {
+			return { pairingError: 'ALLOWED_PHONE no está configurado' };
+		}
+
+		try {
+			const sessionId = `session_${Date.now()}`;
+			const bot = await awaitBot();
+			const result = await bot.requestPairingCode(sessionId, phoneNumber);
+
+			return { pairingCode: result.code };
+		} catch (err: any) {
+			logger.error({ err }, 'Pairing code request failed');
+			return { pairingError: err?.message || 'No se pudo generar el código de emparejamiento' };
+		}
+	},
+} satisfies Actions;
