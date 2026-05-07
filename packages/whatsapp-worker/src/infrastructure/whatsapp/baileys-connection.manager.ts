@@ -23,6 +23,8 @@ import { SqliteKeyStore } from './signal-key-store.js';
 const MAX_RECONNECT_ATTEMPTS = 10;
 const RECONNECT_BASE_DELAY_MS = 2000;
 const RECONNECT_MAX_DELAY_MS = 60000;
+const BAILEYS_RESTART_REQUIRED = 515;
+const BAILEYS_LOGGED_OUT = 401;
 const DEBUG = process.env.DEBUG === 'true';
 
 function serializeBaileysArg(arg: any): string {
@@ -389,8 +391,8 @@ export class BaileysConnectionManager {
         const category = classifyDisconnect(statusCode ?? 0, errorMsg);
         this.logger.info({ sessionId, statusCode, errorMsg, category }, 'Connection closed');
 
-        if (statusCode === 515 || errorMsg.includes('restart')) {
-            this.logger.info({ sessionId, statusCode }, '515 restart required, reconnecting with saved creds');
+        if (statusCode === BAILEYS_RESTART_REQUIRED || errorMsg.includes('restart')) {
+            this.logger.info({ sessionId, statusCode }, 'Restart required, reconnecting with saved creds');
             await saveCredentials();
             try { await socket.end(undefined); } catch {}
 
@@ -398,17 +400,17 @@ export class BaileysConnectionManager {
                 await this.reconnectWithSavedCreds(sessionId);
                 const reconnected = this.sessions.get(sessionId);
                 if (reconnected?.status === 'connected') {
-                    this.logger.info({ sessionId }, 'Reconnected successfully after 515');
+                    this.logger.info({ sessionId }, 'Reconnected successfully after restart');
                     if (options.resolveOn515Success !== undefined) {
                         return { resolved: options.resolveOn515Success };
                     }
                 }
             } catch (err) {
-                this.logger.error({ err, sessionId }, 'Failed to reconnect after 515');
+                this.logger.error({ err, sessionId }, 'Failed to reconnect after restart');
                 return { rejected: new Error(options.reconnectErrorMsg) };
             }
-        } else if (statusCode === 401) {
-            this.logger.info({ sessionId }, 'Logged out (401), clearing session');
+        } else if (statusCode === BAILEYS_LOGGED_OUT) {
+            this.logger.info({ sessionId }, 'Logged out, clearing session');
             this.eventEmitter.emit('PERMANENT_DISCONNECT', { sessionId, reason: errorMsg, statusCode: statusCode ?? 0 });
             await this.teardownSession(sessionId, { deleteData: true, reason: 'logged_out' });
             return { rejected: new Error('Logged out') };
@@ -578,7 +580,7 @@ session = {
         if (connection === 'close') {
             const statusCode = (lastDisconnect?.error as any)?.output?.statusCode;
             const errorMsg = (lastDisconnect?.error as any)?.message || 'unknown';
-            const loggedOut = statusCode === 401;
+            const loggedOut = statusCode === BAILEYS_LOGGED_OUT;
             const category = classifyDisconnect(statusCode ?? 0, errorMsg);
 
             this.logger.info({ sessionId, statusCode, errorMsg, category }, 'Connection closed (reconnect handler)');
