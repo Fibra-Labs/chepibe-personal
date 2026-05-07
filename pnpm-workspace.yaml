@@ -2,4 +2,7 @@ packages:
   - "packages/*"
 
 onlyBuiltDependencies:
-  - "baileys"
+  - "@whiskeysockets/baileys"
+  - "esbuild"
+  - "protobufjs"
+  - "sharp"

@@ -32,6 +32,36 @@ sequenceDiagram
 
 El QR tiene un timeout de 30 segundos en el backend (`createConnection`). La página web muestra un countdown de 60 segundos y recarga automáticamente al expirar. Si el usuario escanea después de los 30s, el QR ya no será válido y la página generará uno nuevo al recargar.
 
+### Flujo de Conexión con Código de Emparejamiento (Pairing Code)
+
+Alternativa al QR: el usuario ingresa su número de teléfono y recibe un código de 8 dígitos para ingresar en WhatsApp.
+
+```mermaid
+sequenceDiagram
+    participant W as Worker
+    participant WS as WhatsApp WebSocket
+    participant U as Usuario
+    participant DB as SQLite
+
+    U->>W: Solicita pairing code (número de teléfono)
+    W->>WS: Crea WebSocket
+    WS-->>W: Genera QR interno
+    W->>WS: Solicita pairing code
+    WS-->>W: Devuelve código de 8 dígitos
+    W->>U: Muestra código
+    U->>WS: Ingresa código en WhatsApp → Linked Devices
+    WS-->>W: Valida y autoriza sesión
+    W->>DB: Persiste creds + Signal Keys
+    W->>W: Marca sesión como "connected"
+```
+
+**Diferencias clave vs QR:**
+- No requiere escanear — el usuario ingresa el código manualmente en WhatsApp
+- Útil cuando la cámara no funciona o el QR no carga
+- El código tiene timeout de 60 segundos
+- Requiere número de teléfono como parámetro
+- API: `bot.requestPairingCode(sessionId, phoneNumber)`
+
 ### Reconexión Automática
 
 Las credenciales se almacenan en SQLite y permiten reconectar sin escanear QR:
@@ -287,7 +317,7 @@ Causado por serialización incorrecta de Buffers. Solución: usar `BufferJSON.re
 
 ## Patches (Solución a Bugs Conocidos)
 
-Baileys v7.0.0-rc.9, la versión actual de esta librería, contiene errores conocidos que hacen que la conexión con WhatsApp sea inestable o inutilizable. Para solucionarlo, `packages/whatsapp-worker/patch-baileys.sh` aplica automáticamente los siguientes cambios sobre la librería en `node_modules` después de ejecutar `pnpm install`.
+Baileys v7.0.0-rc10, la versión actual de esta librería, aún contiene algunos errores conocidos. Para solucionarlos, `packages/whatsapp-worker/patch-baileys.sh` aplica automáticamente los siguientes cambios sobre la librería en `node_modules` después de ejecutar `pnpm install`.
 
 ### Parche 1: Eliminar `lidDbMigrated` del payload
 **Archivo:** `lib/Utils/validate-connection.js`  

@@ -8,9 +8,10 @@ Una sesión transita por un conjunto finito de estados. Cada transición cuenta 
 stateDiagram-v2
     direction TB
 
-    [*] --> none : createConnection()
-    none --> pending : WebSocket abierto, esperando QR
+    [*] --> none : createConnection() / requestPairingCode()
+    none --> pending : WebSocket abierto, esperando QR o pairing code
     pending --> pending : QR generado (resuelve promesa)
+    pending --> pending : Pairing code generado (resuelve promesa)
     pending --> connected : connection.update = "open"
     pending --> destroyed : connection.update = "close" (timeout/401/otro)
     pending --> reconnecting : connection.update = "close" (515)
@@ -24,7 +25,7 @@ stateDiagram-v2
     reconnecting --> destroyed : máx. reintentos excedido / 401
 
     destroyed --> [*] : datos eliminados (no se pueden restaurar)
-    destroyed --> none : createConnection() con el mismo ID
+    destroyed --> none : createConnection() / requestPairingCode() con el mismo ID
 ```
 
 ### Descripción de los Estados

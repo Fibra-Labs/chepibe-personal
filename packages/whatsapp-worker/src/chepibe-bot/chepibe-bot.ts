@@ -65,8 +65,6 @@ export class ChepibeBot extends EventEmitter {
 			}
 		}
 
-
-// --- ADD THESE 5 LINES HERE ---
 		this.logger.info(`FINAL RESOLVED MIGRATIONS PATH: ${migrationsPath}`);
 		if (!fs.existsSync(migrationsPath)) {
 			throw new Error(`CRITICAL STOP: Migrations folder does not exist at ${migrationsPath}`);
@@ -76,7 +74,6 @@ export class ChepibeBot extends EventEmitter {
 		if (migrationFiles.length === 0) {
 			throw new Error(`CRITICAL STOP: Migrations folder exists, but has NO .sql files!`);
 		}
-		// ------------------------------
 
 		await runMigrations(db, migrationsPath);
 		this.logger.info('Database migrations completed');
@@ -168,6 +165,16 @@ export class ChepibeBot extends EventEmitter {
 			throw new Error('Bot not started. Call start() first.');
 		}
 		return this.connectionManager.getSessions();
+	}
+
+	async requestPairingCode(sessionId: string, phoneNumber: string): Promise<{ code: string; sessionId: string }> {
+		if (!this.connectionManager) {
+			throw new Error('Bot not started. Call start() first.');
+		}
+
+		const id = sessionId || `session_${Date.now()}`;
+		const code = await this.connectionManager.requestPairingCode(id, phoneNumber);
+		return { code, sessionId: id };
 	}
 
 	async disconnect(sessionId: string): Promise<void> {

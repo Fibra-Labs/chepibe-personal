@@ -216,10 +216,11 @@ const bot = new ChepibeBot({
 
 await bot.start();
 
-bot.getStatus();      // Estado de conexión
-bot.getQR();           // Generar QR (o devolver alreadyConnected)
-bot.disconnect(id);  // Desconectar sesión
-await bot.destroy();  // Graceful shutdown
+bot.getStatus();                                  // Estado de conexión
+bot.getQR();                                       // Generar QR (o devolver alreadyConnected)
+bot.requestPairingCode(sessionId, phoneNumber);   // Generar código de emparejamiento (alternativa al QR)
+bot.disconnect(id);                              // Desconectar sesión
+await bot.destroy();                              // Graceful shutdown
 ```
 
 ### Eventos

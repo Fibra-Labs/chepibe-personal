@@ -1,5 +1,5 @@
-import { BufferJSON, type SignalDataSet, type SignalDataTypeMap, type SignalKeyStoreWithTransaction } from '@whiskeysockets/baileys';
-import type { Client, LibsqlError } from '@libsql/client';
+import { BufferJSON, type SignalDataSet, type SignalDataTypeMap, type SignalKeyStore } from '@whiskeysockets/baileys';
+import type { Client } from '@libsql/client';
 import type { Logger } from 'pino';
 import type { Db } from '@chepibe-personal/shared';
 import { whatsappSessionKeys, eq, and, inArray } from '@chepibe-personal/shared';
@@ -20,7 +20,7 @@ function isDbMovedError(err: unknown): boolean {
 
 const MAX_FLUSH_RETRIES = 3;
 
-export class SqliteKeyStore implements SignalKeyStoreWithTransaction {
+export class SqliteKeyStore implements SignalKeyStore {
   private cache = new Map<string, unknown>();
   private mutationQueue: KeyMutation[] = [];
   private flushInterval?: NodeJS.Timeout;
@@ -111,14 +111,6 @@ export class SqliteKeyStore implements SignalKeyStoreWithTransaction {
     }
   }
 
-  isInTransaction(): boolean {
-    return false;
-  }
-
-  async transaction<T>(exec: () => Promise<T>, _key: string): Promise<T> {
-    return await exec();
-  }
-
   async loadFromDB(): Promise<void> {
     try {
       const rows = await this.db.select({
@@ -206,13 +198,20 @@ export class SqliteKeyStore implements SignalKeyStoreWithTransaction {
       }
 
       if (deletes.length > 0) {
+        const deletesByType = new Map<string, string[]>();
         for (const m of deletes) {
+          const ids = deletesByType.get(m.type) ?? [];
+          ids.push(m.id);
+          deletesByType.set(m.type, ids);
+        }
+
+        for (const [type, ids] of deletesByType) {
           await this.db.delete(whatsappSessionKeys)
             .where(
               and(
                 eq(whatsappSessionKeys.sessionId, this.sessionId),
-                eq(whatsappSessionKeys.keyType, m.type),
-                eq(whatsappSessionKeys.keyId, m.id),
+                eq(whatsappSessionKeys.keyType, type),
+                inArray(whatsappSessionKeys.keyId, ids),
               ),
             );
         }

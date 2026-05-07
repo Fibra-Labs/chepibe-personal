@@ -12,7 +12,7 @@ WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ && rm -rf /var/lib/apt/lists/*
 
-RUN npm install -g pnpm@latest
+RUN npm install -g pnpm@9
 
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
 COPY .npmrc ./
@@ -34,7 +34,7 @@ ARG ALLOWED_PHONE
 
 WORKDIR /app
 
-RUN npm install -g pnpm@latest
+RUN npm install -g pnpm@9
 
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
 COPY .npmrc ./

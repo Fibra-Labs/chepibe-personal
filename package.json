@@ -23,6 +23,14 @@
     "oxlint": "^1.58.0",
     "typescript": "^5.9.3"
   },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@whiskeysockets/baileys",
+      "esbuild",
+      "protobufjs",
+      "sharp"
+    ]
+  },
   "engines": {
     "node": ">=25",
     "pnpm": ">=9"

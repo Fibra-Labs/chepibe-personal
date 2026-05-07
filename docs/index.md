@@ -17,6 +17,7 @@ Che Pibe Personal consta de dos componentes:
 - **🤖 IA Integration**: Groq Whisper (`whisper-large-v3`) para transcripción, Llama (`llama-3.1-8b-instant`) para resúmenes
 - **🇦🇷 Optimizado para Argentina**: Transcripción y resúmenes en español argentino
 - **📱 WhatsApp Nativo**: Integración vía Baileys v7 - sin APIs oficiales
+- **🔗 Pairing Code**: Alternativa al QR para conectar WhatsApp (útil cuando la cámara no funciona)
 - **🔁 Resiliente**: Sesiones sobreviven restarts (creds + signal keys persistidos en SQLite)
 - **🐳 Docker-Ready**: Despliegue simple con Docker Compose
 - **☁️ Self-Hosted**: Tu código, tu infraestructura, tu control
