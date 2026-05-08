@@ -62,6 +62,10 @@ sequenceDiagram
 - Requiere número de teléfono como parámetro
 - API: `bot.requestPairingCode(sessionId, phoneNumber)`
 
+**Formato del número de teléfono:** Debe ser el número completo en formato internacional **sin el signo `+`** (ej. `5491171234567` para Argentina, `14155552671` para EE.UU.). Este valor se configura en la variable de entorno `ALLOWED_PHONE`.
+
+**Límite de dispositivos:** WhatsApp permite hasta 5 dispositivos vinculados por cuenta. Che Pibe Personal usa una sola sesión activa. Si la sesión se destruye (`teardownSession` con `deleteData: true`), el dispositivo se desvincula y se libera un slot.
+
 ### Reconexión Automática
 
 Las credenciales se almacenan en SQLite y permiten reconectar sin escanear QR:

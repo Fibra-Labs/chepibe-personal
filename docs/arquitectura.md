@@ -218,7 +218,7 @@ await bot.start();
 
 bot.getStatus();                                  // Estado de conexión
 bot.getQR();                                       // Generar QR (o devolver alreadyConnected)
-bot.requestPairingCode(sessionId, phoneNumber);   // Generar código de emparejamiento (alternativa al QR)
+bot.requestPairingCode(sessionId, phoneNumber);   // Generar código de emparejamiento de 8 dígitos
 bot.disconnect(id);                              // Desconectar sesión
 await bot.destroy();                              // Graceful shutdown
 ```
@@ -232,6 +232,38 @@ bot.on('DISCONNECTED', ({ sessionId, reason }) => { ... });
 ```
 
 La UI del web accede al estado del bot directamente desde los `+page.server.ts` de SvelteKit, sin HTTP intermedios.
+
+### Conexión con Código de Emparejamiento (Pairing Code)
+
+Además del QR, el bot soporta vinculación mediante un código de 8 dígitos. Este método es útil cuando la cámara no funciona o el QR no carga.
+
+**API:**
+```typescript
+const result = await bot.requestPairingCode(sessionId, phoneNumber);
+// Retorna: { code: string } — código de 8 dígitos para ingresar en WhatsApp
+```
+
+**Parámetros:**
+- `sessionId` — Identificador único de la sesión (ej. `session_1734567890123`). Se genera automáticamente como `session_${Date.now()}` en el frontend.
+- `phoneNumber` — Número de teléfono en formato internacional **sin el signo `+`** (ej. `5491171234567`). Se toma de la variable de entorno `ALLOWED_PHONE`.
+
+**Flujo:**
+1. El usuario visita `/qr` y cambia al modo "Código de Emparejamiento"
+2. Hace clic en "Generar código" — el formulario hace POST a `+page.server.ts`
+3. El servidor lee `ALLOWED_PHONE` del entorno y llama a `bot.requestPairingCode(sessionId, phoneNumber)`
+4. Internamente, `BaileysConnectionManager`:
+   - Destruye cualquier sesión previa (`teardownSession` con `deleteData: true`)
+   - Crea un nuevo WebSocket con Baileys
+   - Espera el evento QR (interno, no mostrado al usuario)
+   - Llama a `socket.requestPairingCode(phoneNumber)` en el WebSocket
+   - Retorna el código de 8 dígitos al frontend
+5. El código se muestra en pantalla con instrucciones paso a paso
+6. El usuario abre WhatsApp → Dispositivos Vinculados → Vincular un dispositivo → ingresa el código
+7. WhatsApp valida y la sesión pasa a estado `connected`
+
+**Timeout:** 60 segundos. Si el código no se ingresa en ese tiempo, la sesión se destruye automáticamente. El frontend sigue haciendo polling a `/api/status` cada 2 segundos para detectar la conexión exitosa.
+
+**Para más detalles**, ver [whatsapp-session-lifecycle.md](./whatsapp-session-lifecycle.md) (diagrama de secuencia completo) y [baileys.md](./baileys.md) (implementación técnica).
 
 ## Persistencia de Sesiones
 

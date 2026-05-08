@@ -33,7 +33,7 @@ stateDiagram-v2
 | Estado | ¿En memoria? | ¿Datos en DB? | Significado |
 |--------|-------------|---------------|-------------|
 | `none` | No | Quizás | No hay sesión activa para este ID |
-| `pending` | Sí | Sí (creds nuevos) | WebSocket abierto, esperando escaneo de QR |
+| `pending` | Sí | Sí (creds nuevos) | WebSocket abierto, esperando escaneo de QR o ingreso de pairing code |
 | `connected` | Sí | Sí (creds + estado) | Autenticado, procesando mensajes |
 | `reconnecting` | Sí | Sí | Entre cierre y apertura, reintento con retardo exponencial |
 | `destroyed` | No | No (eliminados) | Sesión destruida, no puede restaurarse |
@@ -42,7 +42,7 @@ stateDiagram-v2
 
 Existen únicamente dos formas en que una sesión abandona la máquina:
 
-1. **`teardownSession(id, { deleteData: true })`** — Elimina los datos de la base de datos. Utilizado para: cierre de sesión 401, número de teléfono no coincidente, solicitud de desconexión, timeout de QR, cierre de conexión antes del QR. La sesión no puede restaurarse.
+1. **`teardownSession(id, { deleteData: true })`** — Elimina los datos de la base de datos. Utilizado para: cierre de sesión 401, número de teléfono no coincidente, solicitud de desconexión, timeout de QR, timeout de pairing code, cierre de conexión antes del QR. La sesión no puede restaurarse.
 2. **`teardownSession(id, { deleteData: false })`** — Preserva los datos de la base de datos. Utilizado para: apagado ordenado, preparación de reconexión. La sesión puede restaurarse al reiniciar.
 
 ## Tabla de Decisiones de Desconexión
@@ -59,7 +59,8 @@ flowchart TD
     C --> C2[Número de teléfono no coincide]
     C --> C3[Solicitud de desconexión]
     C --> C4[Timeout de QR - aún no hay sesión válida]
-    C --> C5[Cierre de conexión antes del QR]
+    C --> C5[Timeout de pairing code - aún no hay sesión válida]
+    C --> C6[Cierre de conexión antes del QR]
 
     D --> D1[Apagado ordenado - preservar para restaurar]
     D --> D2[createConnection reemplazando sesión existente]
@@ -71,6 +72,7 @@ flowchart TD
 | Cierre de sesión 401 | `true` | El teléfono cerró sesión explícitamente, las credenciales son inválidas |
 | Número de teléfono no coincide | `true` | Teléfono incorrecto, no debe restaurarse |
 | Timeout de QR (60s) | `true` | Aún no se estableció una sesión válida |
+| Timeout de pairing code (60s) | `true` | Aún no se estableció una sesión válida |
 | Cierre de conexión antes del QR | `true` | Aún no se estableció una sesión válida |
 | Apagado ordenado (`destroy()`) | `false` | Debe sobrevivir al reinicio del contenedor |
 | `createConnection` reemplazando existente | `false` | Las credenciales pueden seguir siendo válidas para reconectar |
@@ -104,6 +106,48 @@ sequenceDiagram
     MGR->>DB: updateSessionStatus("connected")
     MGR-->>MGR: emitir CONNECTED
 ```
+
+### Conexión Nueva con Código de Emparejamiento (Pairing Code)
+
+Alternativa al QR: el usuario solicita un código de 8 dígitos ingresando su número de teléfono, y lo ingresa manualmente en WhatsApp.
+
+```mermaid
+sequenceDiagram
+    participant W as Web UI (/qr)
+    participant SVR as +page.server.ts
+    participant BOT as ChepibeBot.requestPairingCode()
+    participant MGR as BaileysConnectionManager
+    participant DB as SQLite
+    participant BA as Baileys (WhatsApp)
+    participant WS as WebSocket
+
+    W->>SVR: POST form (action default)
+    SVR->>SVR: Lee ALLOWED_PHONE de env
+    SVR->>BOT: requestPairingCode(sessionId, phoneNumber)
+    BOT->>MGR: requestPairingCode(sessionId, phoneNumber)
+    MGR->>DB: teardownSession(id, deleteData: true)
+    MGR->>DB: loadOrCreateAuthState() — cargar o iniciar creds
+    MGR->>DB: SqliteKeyStore.loadFromDB()
+    MGR->>BA: makeWASocket(creds, keys)
+    BA->>WS: conectar a servidores de WhatsApp
+    WS-->>BA: código QR interno
+    BA-->>MGR: connection.update { qr }
+    MGR->>BA: socket.requestPairingCode(phoneNumber)
+    BA-->>MGR: código de 8 dígitos
+    MGR-->>BOT: { code }
+    BOT-->>SVR: { code }
+    SVR-->>W: Muestra código de 8 dígitos
+    Note over W: El usuario ingresa el código en<br/>WhatsApp → Dispositivos Vinculados →<br/>Vincular un dispositivo
+    WS-->>BA: connection.open
+    BA-->>MGR: connection.update { connection: "open" }
+    MGR->>DB: saveCredentials()
+    MGR->>DB: updateSessionStatus("connected")
+    MGR-->>MGR: emitir CONNECTED
+```
+
+**Duración del timeout:** 60 segundos. Si el código no se ingresa en ese tiempo, la sesión se destruye (`teardownSession` con `deleteData: true, reason: 'pairing_timeout'`).
+
+**Número de teléfono:** Se toma de la variable de entorno `ALLOWED_PHONE` (formato internacional sin el signo `+`, ej. `5491171234567`).
 
 ### Reconexión Tras Reinicio
 
