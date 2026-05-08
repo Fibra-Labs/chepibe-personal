@@ -754,6 +754,7 @@ session = {
                         audioMessage.seconds,
                         isFromOtherChat ? phoneNumber : undefined,
                         ownerJid,
+                        isGroup,
                     );
                 } catch (err) {
                     this.logger.error({ err, msgId }, 'Failed to process voice message');
