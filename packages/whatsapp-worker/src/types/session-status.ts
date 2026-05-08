@@ -1,6 +1,1 @@
-export enum SessionStatus {
-	PENDING = 'pending',
-	CONNECTED = 'connected',
-	DISCONNECTED = 'disconnected',
-	EXPIRED = 'expired',
-}
+export type SessionStatus = 'none' | 'pending' | 'qr' | 'connected' | 'reconnecting' | 'destroyed';

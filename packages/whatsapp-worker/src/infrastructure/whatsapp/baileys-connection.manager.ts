@@ -841,6 +841,7 @@ session = {
             this.reconnectTimeouts.delete(sessionId);
         }
         this.reconnectAttempts.delete(sessionId);
+        this.sessions.delete(sessionId);
 
         const keyStore = this.keyStores.get(sessionId);
         if (keyStore) {

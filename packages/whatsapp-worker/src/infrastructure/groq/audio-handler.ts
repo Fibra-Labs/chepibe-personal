@@ -1,5 +1,6 @@
 import type {WASocket} from '@whiskeysockets/baileys';
 import type {Logger} from 'pino';
+import {AudioProcessingError} from '../../domain/audio-processing-error.js';
 import type {GroqClient} from './groq-client.js';
 
 function stripDeviceSuffix(jid: string): string {
@@ -79,6 +80,7 @@ export class AudioHandler {
             }, 'Voice message processed and replied to owner');
         } catch (err) {
             this.logger.error({err, messageId}, 'Failed to process voice message');
+            throw new AudioProcessingError('Failed to process audio', { cause: err });
         } finally {
             await socket.sendPresenceUpdate('paused', cleanOwnerJid);
         }

@@ -1,3 +1,4 @@
+import { Mutex } from 'async-mutex';
 import { BufferJSON, type SignalDataSet, type SignalDataTypeMap, type SignalKeyStore } from '@whiskeysockets/baileys';
 import type { Client } from '@libsql/client';
 import type { Logger } from 'pino';
@@ -24,8 +25,7 @@ export class SqliteKeyStore implements SignalKeyStore {
   private cache = new Map<string, unknown>();
   private mutationQueue: KeyMutation[] = [];
   private flushInterval?: NodeJS.Timeout;
-  private isFlushing = false;
-  private flushPromise?: Promise<void>;
+  private flushInProgress?: Promise<void>;
   private consecutiveDbMovedErrors = 0;
   private readonly FLUSH_INTERVAL_MS = 2000;
   private readonly MAX_QUEUE_SIZE = 1000;
@@ -91,7 +91,6 @@ export class SqliteKeyStore implements SignalKeyStore {
     for (const [type, values] of Object.entries(data)) {
       for (const [id, value] of Object.entries(values || {})) {
         const cacheKey = `${type}:${id}`;
-
         if (value !== null) {
           this.cache.set(cacheKey, value);
           this.mutationQueue.push({ type, id, value, operation: 'upsert' });
@@ -147,29 +146,33 @@ export class SqliteKeyStore implements SignalKeyStore {
     await this.flushMutations();
   }
 
-  private async flushMutations(): Promise<void> {
-    if (this.isFlushing || this.mutationQueue.length === 0) {
+  private async maybeFlush(): Promise<void> {
+    if (this.flushInProgress) {
+      await this.flushInProgress;
       return;
     }
 
-    if (this.flushPromise) {
-      return this.flushPromise;
+    if (this.mutationQueue.length === 0) {
+      return;
     }
 
-    this.flushPromise = this.doFlush();
+    this.flushInProgress = this.doFlush();
     try {
-      await this.flushPromise;
+      await this.flushInProgress;
     } finally {
-      this.flushPromise = undefined;
+      this.flushInProgress = undefined;
     }
   }
 
+  private async flushMutations(): Promise<void> {
+    await this.maybeFlush();
+  }
+
   private async doFlush(): Promise<void> {
-    if (this.isFlushing || this.mutationQueue.length === 0) {
+    if (this.mutationQueue.length === 0) {
       return;
     }
 
-    this.isFlushing = true;
     const batch = [...this.mutationQueue];
     this.mutationQueue = [];
 
@@ -255,8 +258,6 @@ export class SqliteKeyStore implements SignalKeyStore {
           'Flush failed, will retry',
         );
       }
-    } finally {
-      this.isFlushing = false;
     }
   }
 }

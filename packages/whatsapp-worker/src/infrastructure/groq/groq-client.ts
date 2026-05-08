@@ -114,7 +114,7 @@ export class GroqClient {
         transcriptionLength,
         model: this.llmModel,
       }, 'Groq LLM summarization failed');
-      return '';
+      throw err;
     }
   }
 
