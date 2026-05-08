@@ -158,7 +158,7 @@ export class SessionActor {
                   await saveCredentials();
                   resolve(ok({ code }));
                   this.abortController?.abort();
-                } catch (err) {
+                } catch (pairingErr) {
                   clearTimeout(timeout);
                   resolve(err(new Error('Failed to request pairing code')));
                   this.abortController?.abort();
