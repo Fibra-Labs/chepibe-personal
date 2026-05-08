@@ -7,14 +7,14 @@ import makeWASocket, {
   fetchLatestBaileysVersion,
   initAuthCreds,
   makeCacheableSignalKeyStore,
-  type SignalKeyStoreWithTransaction,
   type WASocket,
 } from '@whiskeysockets/baileys';
 import NodeCache from 'node-cache';
 import type { Client } from '@libsql/client';
 import type { Logger } from 'pino';
 import type { Db } from '@chepibe-personal/shared';
-import { eq, inArray, whatsappSessions, whatsappSessionKeys } from '@chepibe-personal/shared';
+import { eq, whatsappSessions, whatsappSessionKeys } from '@chepibe-personal/shared';
+import { sql } from 'drizzle-orm';
 import { ok, err, type Result } from '../types/result';
 import { SessionStateMachine } from './session-state-machine';
 import type { SessionStatus } from '../types/session-status';
@@ -357,9 +357,13 @@ export class SessionActor {
         return;
       }
       await this.audioHandler.handleAudioMessage(
-        this.phoneNumber ?? this.allowedPhone,
-        { buffer, mimetype: audioMessage.mimetype, duration: audioMessage.seconds, msgId },
         this.socket!,
+        sender,
+        buffer,
+        audioMessage.mimetype,
+        msgId,
+        audioMessage.seconds,
+        this.phoneNumber ?? this.allowedPhone,
       );
       this.processedMessages.set(dedupKey, true);
     } catch (e) {
@@ -392,61 +396,49 @@ export class SessionActor {
   }
 
   private async setupSocketAndSession(logMessage: string): Promise<Result<{ socket: WASocket; saveCredentials: () => Promise<void> }, Error>> {
-    const authState = await this.loadOrCreateAuthState();
+    const { creds, saveCredentials } = await this.loadOrCreateAuthState();
     const version = await fetchLatestBaileysVersion();
 
     const keyStore = new SqliteKeyStore(this.sessionId, this.db, this.client, this.logger);
     this.keyStore = keyStore;
     await keyStore.loadFromDB();
 
+    const keys = makeCacheableSignalKeyStore(keyStore, this.logger);
+    const authState: AuthenticationState = { creds, keys };
+
     const socket = makeWASocket({
       version: version.version,
       logger: this.logger,
       printQRInTerminal: false,
-      auth: {
-        creds: authState.state.creds,
-        keys: makeCacheableSignalKeyStore(keyStore, this.logger),
-      },
+      auth: authState,
     });
 
     this.socket = socket;
-    return ok({ socket, saveCredentials: authState.saveCredentials });
+    return ok({ socket, saveCredentials });
   }
 
-  private async loadOrCreateAuthState(): Promise<{ state: AuthenticationState; saveCredentials: () => Promise<void> }> {
+  private async loadOrCreateAuthState(): Promise<{ creds: AuthenticationCreds; saveCredentials: () => Promise<void> }> {
     const rows = await this.db
       .select({ id: whatsappSessions.id, creds: whatsappSessions.creds })
       .from(whatsappSessions)
       .where(eq(whatsappSessions.id, this.sessionId))
       .limit(1);
 
-    if (rows.length > 0 && rows[0].creds) {
-      const creds: AuthenticationCreds = JSON.parse(rows[0].creds, BufferJSON.reviver);
-      const state: AuthenticationState = { creds, keys: {} };
-      const saveCredentials = async () => {
-        await this.db
-          .insert(whatsappSessions)
-          .values({ id: this.sessionId, status: 'pending', creds: JSON.stringify(creds, BufferJSON.replacer) })
-          .onConflictDoUpdate({
-            target: whatsappSessions.id,
-            set: { creds: JSON.stringify(creds, BufferJSON.replacer), updatedAt: new Date() },
-          });
-      };
-      return { state, saveCredentials };
-    }
+    const creds: AuthenticationCreds = rows.length > 0 && rows[0].creds
+      ? JSON.parse(rows[0].creds, BufferJSON.reviver)
+      : initAuthCreds();
 
-    const creds = initAuthCreds();
-    const state: AuthenticationState = { creds, keys: {} };
     const saveCredentials = async () => {
       await this.db
         .insert(whatsappSessions)
         .values({ id: this.sessionId, status: 'pending', creds: JSON.stringify(creds, BufferJSON.replacer) })
         .onConflictDoUpdate({
           target: whatsappSessions.id,
-          set: { creds: JSON.stringify(creds, BufferJSON.replacer), updatedAt: new Date() },
+          set: { creds: JSON.stringify(creds, BufferJSON.replacer), updatedAt: sql`(unixepoch())` },
         });
     };
-    return { state, saveCredentials };
+
+    return { creds, saveCredentials };
   }
 
   private async onConnectionOpen(socket: WASocket, saveCredentials: () => Promise<void>): Promise<Result<void, Error>> {
@@ -493,7 +485,7 @@ export class SessionActor {
 
     if (this.socket) {
       try {
-        await this.socket.end({ logOut: deleteData });
+        await this.socket.end(undefined);
       } catch {
       }
       this.socket = null;
