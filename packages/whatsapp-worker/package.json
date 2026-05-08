@@ -15,7 +15,9 @@
     "dev": "tsx watch --env-file=../../.env src/main.ts",
     "build": "tsup",
     "start": "node dist/main.mjs",
-    "lint": "oxlint src/"
+    "lint": "oxlint src/",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@chepibe-personal/shared": "workspace:*",
@@ -29,6 +31,7 @@
     "@types/node": "^22.15.3",
     "tsup": "^8.4.0",
     "tsx": "^4.21.0",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.5"
   }
 }

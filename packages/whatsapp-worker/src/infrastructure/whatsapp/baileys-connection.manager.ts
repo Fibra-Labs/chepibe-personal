@@ -238,9 +238,9 @@ export class BaileysConnectionManager {
         });
     }
 
-    async requestPairingCode(sessionId: string, phoneNumber: string): Promise<string> {
-        await this.teardownSession(sessionId, { deleteData: true });
-        const { socket, session, saveCredentials } = await this.setupSocketAndSession(sessionId, 'Creating Baileys socket for pairing code');
+	async requestPairingCode(sessionId: string, phoneNumber: string): Promise<string> {
+		await this.teardownSession(sessionId, { deleteData: true, reason: 'pairing_request' });
+		const { socket, session, saveCredentials } = await this.setupSocketAndSession(sessionId, 'Creating Baileys socket for pairing code');
 
         return new Promise((resolve, reject) => {
             let hasResolved = false;
@@ -840,7 +840,7 @@ session = {
         const keyStore = this.keyStores.get(sessionId);
         if (keyStore) {
             await keyStore.forceFlush();
-            keyStore.destroy();
+            await keyStore.destroy();
             this.keyStores.delete(sessionId);
         }
 

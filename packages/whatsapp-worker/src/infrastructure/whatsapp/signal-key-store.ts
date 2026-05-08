@@ -139,12 +139,12 @@ export class SqliteKeyStore implements SignalKeyStore {
     await this.flushMutations();
   }
 
-  destroy(): void {
+  async destroy(): Promise<void> {
     if (this.flushInterval) {
       clearInterval(this.flushInterval);
       this.flushInterval = undefined;
     }
-    void this.flushMutations();
+    await this.flushMutations();
   }
 
   private async flushMutations(): Promise<void> {
