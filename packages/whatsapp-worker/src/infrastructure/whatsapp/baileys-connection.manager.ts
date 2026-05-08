@@ -388,8 +388,13 @@ export class BaileysConnectionManager {
             reconnectErrorMsg: string;
             resolveOn515Success?: any;
         },
-    ): Promise<{ resolved?: any; rejected?: Error }> {
-        const statusCode = (lastDisconnect?.error as any)?.output?.statusCode;
+	): Promise<{ resolved?: any; rejected?: Error }> {
+		const existingSession = this.sessions.get(sessionId);
+		if (!existingSession || existingSession.socket !== socket) {
+			return {};
+		}
+
+		const statusCode = (lastDisconnect?.error as any)?.output?.statusCode;
         const errorMsg = (lastDisconnect?.error as any)?.message || 'unknown';
         const category = classifyDisconnect(statusCode ?? 0, errorMsg);
         this.logger.info({ sessionId, statusCode, errorMsg, category }, 'Connection closed');

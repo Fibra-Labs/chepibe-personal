@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vite
 import { drizzle } from 'drizzle-orm/libsql';
 import { createClient } from '@libsql/client';
 import { sql, eq } from 'drizzle-orm';
-import { whatsappSessionKeys } from '@chepibe-personal/shared';
+import { whatsappSessionKeys, runMigrations } from '@chepibe-personal/shared';
 
 const SESSION_ID = 'session_test';
 
@@ -26,21 +26,8 @@ describe('SqliteKeyStore', () => {
 		sqliteClient = createClient({ url: ':memory:' });
 		sqliteDb = drizzle(sqliteClient, { schema: { whatsappSessionKeys } });
 
-		await sqliteClient.execute(`
-			CREATE TABLE IF NOT EXISTS whatsapp_session_keys (
-				id INTEGER PRIMARY KEY AUTOINCREMENT,
-				session_id TEXT NOT NULL,
-				key_type TEXT NOT NULL,
-				key_id TEXT NOT NULL,
-				key_data TEXT,
-				created_at INTEGER DEFAULT (unixepoch()) NOT NULL,
-				updated_at INTEGER DEFAULT (unixepoch()) NOT NULL
-			)
-		`);
-		await sqliteClient.execute(`
-			CREATE UNIQUE INDEX IF NOT EXISTS uq_session_keys_type_id
-			ON whatsapp_session_keys(session_id, key_type, key_id)
-		`);
+		await sqliteClient.execute(`PRAGMA journal_mode = WAL;`);
+		await runMigrations(sqliteDb as any, './drizzle');
 	});
 
 	beforeEach(() => {
