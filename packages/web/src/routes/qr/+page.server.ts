@@ -2,6 +2,7 @@ import { awaitBot } from '$lib/server/bot';
 import { env } from '$env/dynamic/private';
 import pino from 'pino';
 import type { Actions, ServerLoad } from '@sveltejs/kit';
+import { redirect } from '@sveltejs/kit';
 
 const logger = pino({
 	level: env.DEBUG === 'true' ? 'debug' : 'error',
@@ -12,9 +13,20 @@ const logger = pino({
 
 export const load: ServerLoad = async ({ url }) => {
 	try {
-		const sessionId = url.searchParams.get('sessionId') || undefined;
 		const bot = await awaitBot();
-		const data = await bot.getQR(sessionId);
+		const status = bot.getStatus();
+
+		if (status.connected) {
+			logger.info('Redirecting from /qr to / because session is already connected');
+			throw redirect(303, '/');
+		}
+
+		const mode = url.searchParams.get('mode');
+		if (mode === 'pairing') {
+			return { qr: null, alreadyConnected: false, mode: 'pairing' as const };
+		}
+
+		const data = await bot.getQR();
 
 		if ('alreadyConnected' in data && data.alreadyConnected) {
 			return { qr: null, alreadyConnected: true, phoneNumber: data.phoneNumber || null };
@@ -26,11 +38,14 @@ export const load: ServerLoad = async ({ url }) => {
 				width: 300,
 				margin: 2
 			});
-			return { qr: qrDataUrl, alreadyConnected: false, sessionId: data.sessionId };
+			return { qr: qrDataUrl, alreadyConnected: false };
 		}
 
-		return { qr: null, alreadyConnected: false, sessionId: data.sessionId };
+		return { qr: null, alreadyConnected: false };
 	} catch (err) {
+		if (err instanceof Response && err.status === 303) {
+			throw err;
+		}
 		logger.error({ err }, 'QR page load failed');
 		return { qr: null, alreadyConnected: false };
 	}
@@ -45,12 +60,22 @@ export const actions = {
 		}
 
 		try {
-			const sessionId = `session_${Date.now()}`;
 			const bot = await awaitBot();
-			const result = await bot.requestPairingCode(sessionId, phoneNumber);
+
+			// Check if already connected before attempting pairing
+			const status = bot.getStatus();
+			if (status.connected) {
+				logger.warn('Attempted to request pairing code while connected');
+				throw redirect(303, '/');
+			}
+
+			const result = await bot.requestPairingCode(phoneNumber);
 
 			return { pairingCode: result.code };
 		} catch (err: any) {
+			if (err instanceof Response && err.status === 303) {
+				throw err;
+			}
 			logger.error({ err }, 'Pairing code request failed');
 			return { pairingError: err?.message || 'No se pudo generar el código de emparejamiento' };
 		}

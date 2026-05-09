@@ -3,12 +3,17 @@ import type { Client } from '@libsql/client';
 import type { Logger } from 'pino';
 import type { Db } from '@chepibe-personal/shared';
 import { whatsappSessionKeys, eq, and, inArray } from '@chepibe-personal/shared';
+import { sql } from 'drizzle-orm';
+
+const UPSERT = 'upsert' as const;
+const DELETE = 'delete' as const;
+type MutationOperation = typeof UPSERT | typeof DELETE;
 
 interface KeyMutation {
   type: string;
   id: string;
   value: unknown;
-  operation: 'upsert' | 'delete';
+  operation: MutationOperation;
 }
 
 function isDbMovedError(err: unknown): boolean {
@@ -19,16 +24,15 @@ function isDbMovedError(err: unknown): boolean {
 }
 
 const MAX_FLUSH_RETRIES = 3;
+const FLUSH_INTERVAL_MS = 2000;
+const MAX_QUEUE_SIZE = 1000;
 
-export class SqliteKeyStore implements SignalKeyStore {
+export class SignalKeyStore implements SignalKeyStore {
   private cache = new Map<string, unknown>();
   private mutationQueue: KeyMutation[] = [];
   private flushInterval?: NodeJS.Timeout;
-  private isFlushing = false;
-  private flushPromise?: Promise<void>;
+  private flushInProgress?: Promise<void>;
   private consecutiveDbMovedErrors = 0;
-  private readonly FLUSH_INTERVAL_MS = 2000;
-  private readonly MAX_QUEUE_SIZE = 1000;
 
   constructor(
     private sessionId: string,
@@ -37,8 +41,8 @@ export class SqliteKeyStore implements SignalKeyStore {
     private logger: Logger,
   ) {
     this.flushInterval = setInterval(() => {
-      void this.flushMutations();
-    }, this.FLUSH_INTERVAL_MS);
+      this.scheduleFlush();
+    }, FLUSH_INTERVAL_MS);
   }
 
   async get<T extends keyof SignalDataTypeMap>(type: T, ids: string[]): Promise<{ [id: string]: SignalDataTypeMap[T] }> {
@@ -91,23 +95,22 @@ export class SqliteKeyStore implements SignalKeyStore {
     for (const [type, values] of Object.entries(data)) {
       for (const [id, value] of Object.entries(values || {})) {
         const cacheKey = `${type}:${id}`;
-
         if (value !== null) {
           this.cache.set(cacheKey, value);
-          this.mutationQueue.push({ type, id, value, operation: 'upsert' });
+          this.mutationQueue.push({ type, id, value, operation: UPSERT });
         } else {
           this.cache.delete(cacheKey);
-          this.mutationQueue.push({ type, id, value: null, operation: 'delete' });
+          this.mutationQueue.push({ type, id, value: null, operation: DELETE });
         }
       }
     }
 
-    if (this.mutationQueue.length >= this.MAX_QUEUE_SIZE) {
+    if (this.mutationQueue.length >= MAX_QUEUE_SIZE) {
       this.logger.warn(
         { sessionId: this.sessionId, queueSize: this.mutationQueue.length },
         'Queue size limit reached, forcing flush',
       );
-      void this.flushMutations();
+      this.scheduleFlush();
     }
   }
 
@@ -136,94 +139,62 @@ export class SqliteKeyStore implements SignalKeyStore {
   }
 
   async forceFlush(): Promise<void> {
-    await this.flushMutations();
+    if (this.flushInProgress) {
+      await this.flushInProgress;
+    }
+    await this.doFlush();
   }
 
-  destroy(): void {
+  async destroy(): Promise<void> {
     if (this.flushInterval) {
       clearInterval(this.flushInterval);
       this.flushInterval = undefined;
     }
-    void this.flushMutations();
+    await this.doFlush();
   }
 
-  private async flushMutations(): Promise<void> {
-    if (this.isFlushing || this.mutationQueue.length === 0) {
+  private scheduleFlush(): void {
+    this.maybeFlush().catch((err) => {
+      this.logger.error({ err, sessionId: this.sessionId }, 'Scheduled flush failed');
+    });
+  }
+
+  private async maybeFlush(): Promise<void> {
+    if (this.flushInProgress) {
+      await this.flushInProgress;
       return;
     }
 
-    if (this.flushPromise) {
-      return this.flushPromise;
+    if (this.mutationQueue.length === 0) {
+      return;
     }
 
-    this.flushPromise = this.doFlush();
+    this.flushInProgress = this.doFlush();
     try {
-      await this.flushPromise;
+      await this.flushInProgress;
     } finally {
-      this.flushPromise = undefined;
+      this.flushInProgress = undefined;
     }
   }
 
   private async doFlush(): Promise<void> {
-    if (this.isFlushing || this.mutationQueue.length === 0) {
+    if (this.mutationQueue.length === 0) {
       return;
     }
 
-    this.isFlushing = true;
     const batch = [...this.mutationQueue];
     this.mutationQueue = [];
 
     try {
-      const upserts = batch.filter((m) => m.operation === 'upsert');
-      const deletes = batch.filter((m) => m.operation === 'delete');
-
-      if (upserts.length > 0) {
-        for (const m of upserts) {
-          const serializedValue = JSON.stringify(m.value, BufferJSON.replacer);
-          const now = Math.floor(Date.now() / 1000);
-
-          await this.db.insert(whatsappSessionKeys)
-            .values({
-              sessionId: this.sessionId,
-              keyType: m.type,
-              keyId: m.id,
-              keyData: serializedValue,
-              updatedAt: now,
-            })
-            .onConflictDoUpdate({
-              target: [whatsappSessionKeys.sessionId, whatsappSessionKeys.keyType, whatsappSessionKeys.keyId],
-              set: { keyData: serializedValue, updatedAt: now },
-            });
-        }
-      }
-
-      if (deletes.length > 0) {
-        const deletesByType = new Map<string, string[]>();
-        for (const m of deletes) {
-          const ids = deletesByType.get(m.type) ?? [];
-          ids.push(m.id);
-          deletesByType.set(m.type, ids);
-        }
-
-        for (const [type, ids] of deletesByType) {
-          await this.db.delete(whatsappSessionKeys)
-            .where(
-              and(
-                eq(whatsappSessionKeys.sessionId, this.sessionId),
-                eq(whatsappSessionKeys.keyType, type),
-                inArray(whatsappSessionKeys.keyId, ids),
-              ),
-            );
-        }
-      }
+      await this.writeBatchToDb(batch);
 
       this.consecutiveDbMovedErrors = 0;
       this.logger.debug(
-        { sessionId: this.sessionId, total: batch.length, upserts: upserts.length, deletes: deletes.length },
+        { sessionId: this.sessionId, count: batch.length },
         'Flushed key mutations',
       );
     } catch (error) {
-      this.mutationQueue.unshift(...batch);
+      this.requeueAfterFailure(batch);
 
       if (isDbMovedError(error)) {
         this.consecutiveDbMovedErrors++;
@@ -255,8 +226,58 @@ export class SqliteKeyStore implements SignalKeyStore {
           'Flush failed, will retry',
         );
       }
-    } finally {
-      this.isFlushing = false;
     }
+  }
+
+  private async writeBatchToDb(batch: KeyMutation[]): Promise<void> {
+    const upserts = batch.filter(m => m.operation === UPSERT);
+    const deletes = batch.filter(m => m.operation === DELETE);
+
+    if (upserts.length > 0) {
+      const now = Math.floor(Date.now() / 1000);
+      await this.db.insert(whatsappSessionKeys)
+        .values(
+          upserts.map(m => ({
+            sessionId: this.sessionId,
+            keyType: m.type,
+            keyId: m.id,
+            keyData: JSON.stringify(m.value, BufferJSON.replacer),
+            updatedAt: now,
+          })),
+        )
+        .onConflictDoUpdate({
+          target: [whatsappSessionKeys.sessionId, whatsappSessionKeys.keyType, whatsappSessionKeys.keyId],
+          set: {
+            keyData: sql`excluded.key_data`,
+            updatedAt: sql`excluded.updated_at`,
+          },
+        });
+    }
+
+    if (deletes.length > 0) {
+      const deletesByType = new Map<string, string[]>();
+      for (const m of deletes) {
+        const ids = deletesByType.get(m.type) ?? [];
+        ids.push(m.id);
+        deletesByType.set(m.type, ids);
+      }
+
+      for (const [type, ids] of deletesByType) {
+        await this.db.delete(whatsappSessionKeys)
+          .where(
+            and(
+              eq(whatsappSessionKeys.sessionId, this.sessionId),
+              eq(whatsappSessionKeys.keyType, type),
+              inArray(whatsappSessionKeys.keyId, ids),
+            ),
+          );
+      }
+    }
+  }
+
+  private requeueAfterFailure(batch: KeyMutation[]): void {
+    const existingKeys = new Set(this.mutationQueue.map(m => `${m.type}:${m.id}`));
+    const toRequeue = batch.filter(m => !existingKeys.has(`${m.type}:${m.id}`));
+    this.mutationQueue = [...toRequeue, ...this.mutationQueue];
   }
 }

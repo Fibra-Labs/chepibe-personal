@@ -4,7 +4,10 @@
   "license": "AGPL-3.0",
   "description": "WhatsApp Baileys worker — receives audio, transcribes via Groq, sends back summary",
   "main": "./dist/index.mjs",
-  "files": ["dist", "drizzle"],
+  "files": [
+    "dist",
+    "drizzle"
+  ],
   "exports": {
     ".": {
       "import": "./dist/index.mjs",
@@ -13,13 +16,17 @@
   },
   "scripts": {
     "dev": "tsx watch --env-file=../../.env src/main.ts",
+    "dev:lib": "tsup --watch",
     "build": "tsup",
     "start": "node dist/main.mjs",
-    "lint": "oxlint src/"
+    "lint": "oxlint src/",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@chepibe-personal/shared": "workspace:*",
     "@whiskeysockets/baileys": "^7.0.0-rc10",
+    "async-mutex": "^0.5.0",
     "groq-sdk": "^0.37.0",
     "node-cache": "^5.1.2",
     "pino": "^9.14.0",
@@ -29,6 +36,7 @@
     "@types/node": "^22.15.3",
     "tsup": "^8.4.0",
     "tsx": "^4.21.0",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.5"
   }
 }

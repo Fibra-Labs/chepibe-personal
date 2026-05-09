@@ -5,12 +5,10 @@
 
 	let connected = $state(data.connected);
 	let phoneNumber = $state(data.phoneNumber);
-	let sessionId = $state(data.sessionId);
 
 	$effect(() => {
 		connected = data.connected;
 		phoneNumber = data.phoneNumber;
-		sessionId = data.sessionId;
 	});
 
 	$effect(() => {
@@ -70,7 +68,6 @@
 
 		{#if connected}
 			<form method="POST">
-				<input type="hidden" name="sessionId" value={sessionId ?? ''} />
 				<button
 					type="submit"
 					class="w-full rounded-xl px-4 py-3 text-sm font-semibold text-white transition-all duration-300 hover:scale-[1.02]"

@@ -1,6 +1,6 @@
 import Groq from 'groq-sdk';
 import type { Logger } from 'pino';
-import type { TranscriptionResult } from '../../types/transcription-result.js';
+import type { TranscriptionResult } from './types.js';
 
 function getExtensionFromMimetype(mimetype: string): string {
   switch (mimetype) {
@@ -114,7 +114,7 @@ export class GroqClient {
         transcriptionLength,
         model: this.llmModel,
       }, 'Groq LLM summarization failed');
-      return '';
+      throw err;
     }
   }
 
