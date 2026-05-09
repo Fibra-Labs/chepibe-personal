@@ -19,11 +19,11 @@ import { SignalKeyStore } from './signal-key-store.js';
 import type { AudioHandler } from './audio-handler.js';
 import { SessionStateMachine } from './session-state-machine.js';
 import {
-  ok, err, type Result, type SessionStatus, type SessionEvent, type SessionEventName,
+  ok, err, type Result, type SessionEvent, type SessionEventName,
   SessionEventName as EventName,
+  SessionStatus,
   BaileysDisconnectCode, TeardownReason,
-  BaileysEvent, BaileysConnection, SessionAction,
-  DB_SESSION_STATUS_PENDING, DB_SESSION_STATUS_CONNECTED, DB_SESSION_STATUS_DISCONNECTED,
+  Baileys, StateMachineAction,
   WHATSAPP_JID_SUFFIX, LID_SUFFIX, GROUP_JID_SUFFIX, DEDUP_TTL_SECONDS, RESPONSIVE_THRESHOLD_MS,
   MAX_RECONNECT_ATTEMPTS, RECONNECT_BASE_DELAY_MS, RECONNECT_MAX_DELAY_MS,
   QR_TIMEOUT_MS, PAIRING_TIMEOUT_MS,
@@ -63,11 +63,11 @@ export class WhatsAppSession {
   async startQR(): Promise<Result<{ qrCode: string }, Error>> {
     return this.lock.runExclusive(async () => {
       const state = this.stateMachine.getState();
-      if (state !== 'none' && state !== 'destroyed') {
+      if (state !== SessionStatus.None && state !== SessionStatus.Destroyed) {
         return err(new Error(`Cannot startQR from state ${state}`));
       }
 
-      const trans = this.stateMachine.transition('pending', SessionAction.StartQr);
+      const trans = this.stateMachine.transition(SessionStatus.Pending, StateMachineAction.StartQr);
       if (!trans.ok) return trans as Result<never, Error>;
 
       const setup = await this.setupSocketAndSession('Creating Baileys socket for QR');
@@ -79,7 +79,7 @@ export class WhatsAppSession {
       try {
         const result = await new Promise<Result<{ qrCode: string }, Error>>((resolve) => {
           const timeout = setTimeout(() => {
-            socket.ev.off(BaileysEvent.ConnectionUpdate, updateListener);
+            socket.ev.off(Baileys.Event.ConnectionUpdate, updateListener);
             this.abortController?.abort();
             resolve(err(new Error(ERROR_PREFIX_TIMEOUT_QR)));
           }, QR_TIMEOUT_MS);
@@ -90,7 +90,7 @@ export class WhatsAppSession {
 
             if (qr) {
               clearTimeout(timeout);
-              socket.ev.off(BaileysEvent.ConnectionUpdate, updateListener);
+              socket.ev.off(Baileys.Event.ConnectionUpdate, updateListener);
               this.logger.info({ sessionId: this.sessionId }, 'QR code generated');
               await saveCredentials();
               await this.emitEvent(EventName.QrReady, { sessionId: this.sessionId, qrCode: qr });
@@ -98,23 +98,23 @@ export class WhatsAppSession {
               return;
             }
 
-            if (connection === BaileysConnection.Open) {
+            if (connection === Baileys.Connection.Open) {
               clearTimeout(timeout);
-              socket.ev.off(BaileysEvent.ConnectionUpdate, updateListener);
+              socket.ev.off(Baileys.Event.ConnectionUpdate, updateListener);
               this.abortController?.abort();
               resolve(ok({ qrCode: '' }));
               return;
             }
 
-            if (connection === BaileysConnection.Close) {
+            if (connection === Baileys.Connection.Close) {
               clearTimeout(timeout);
-              socket.ev.off(BaileysEvent.ConnectionUpdate, updateListener);
+              socket.ev.off(Baileys.Event.ConnectionUpdate, updateListener);
               this.abortController?.abort();
               resolve(err(new Error('Connection closed during QR')));
             }
           };
 
-          socket.ev.on(BaileysEvent.ConnectionUpdate, updateListener);
+          socket.ev.on(Baileys.Event.ConnectionUpdate, updateListener);
         });
 
         if (!result.ok) {
@@ -133,11 +133,11 @@ export class WhatsAppSession {
   async startPairing(phoneNumber: string): Promise<Result<{ code: string }, Error>> {
     return this.lock.runExclusive(async () => {
       const state = this.stateMachine.getState();
-      if (state !== 'none' && state !== 'destroyed') {
+      if (state !== SessionStatus.None && state !== SessionStatus.Destroyed) {
         return err(new Error(`Cannot startPairing from state ${state}`));
       }
 
-      const trans = this.stateMachine.transition('pending', SessionAction.StartPairing);
+      const trans = this.stateMachine.transition(SessionStatus.Pending, StateMachineAction.StartPairing);
       if (!trans.ok) return trans as Result<never, Error>;
 
       const setup = await this.setupSocketAndSession('Creating Baileys socket for pairing code');
@@ -149,7 +149,7 @@ export class WhatsAppSession {
       try {
         const result = await new Promise<Result<{ code: string }, Error>>((resolve) => {
           const timeout = setTimeout(() => {
-            socket.ev.off(BaileysEvent.ConnectionUpdate, updateListener);
+            socket.ev.off(Baileys.Event.ConnectionUpdate, updateListener);
             this.abortController?.abort();
             resolve(err(new Error(ERROR_PREFIX_TIMEOUT_PAIRING)));
           }, PAIRING_TIMEOUT_MS);
@@ -163,36 +163,36 @@ export class WhatsAppSession {
                 const code = await socket.requestPairingCode(phoneNumber);
                 this.logger.info({ sessionId: this.sessionId }, 'Pairing code generated');
                 clearTimeout(timeout);
-                socket.ev.off(BaileysEvent.ConnectionUpdate, updateListener);
+                socket.ev.off(Baileys.Event.ConnectionUpdate, updateListener);
                 await saveCredentials();
                 resolve(ok({ code }));
                 return;
               } catch {
                 clearTimeout(timeout);
-                socket.ev.off(BaileysEvent.ConnectionUpdate, updateListener);
+                socket.ev.off(Baileys.Event.ConnectionUpdate, updateListener);
                 resolve(err(new Error(ERROR_PAIRING_CODE_FAILED)));
                 this.abortController?.abort();
                 return;
               }
             }
 
-            if (connection === BaileysConnection.Open) {
+            if (connection === Baileys.Connection.Open) {
               clearTimeout(timeout);
-              socket.ev.off(BaileysEvent.ConnectionUpdate, updateListener);
+              socket.ev.off(Baileys.Event.ConnectionUpdate, updateListener);
               this.abortController?.abort();
               resolve(ok({ code: '' }));
               return;
             }
 
-            if (connection === BaileysConnection.Close) {
+            if (connection === Baileys.Connection.Close) {
               clearTimeout(timeout);
-              socket.ev.off(BaileysEvent.ConnectionUpdate, updateListener);
+              socket.ev.off(Baileys.Event.ConnectionUpdate, updateListener);
               this.abortController?.abort();
               resolve(err(new Error('Connection closed during pairing')));
             }
           };
 
-          socket.ev.on(BaileysEvent.ConnectionUpdate, updateListener);
+          socket.ev.on(Baileys.Event.ConnectionUpdate, updateListener);
         });
 
         if (!result.ok) {
@@ -213,20 +213,20 @@ export class WhatsAppSession {
   async reconnect(): Promise<Result<void, Error>> {
     return this.lock.runExclusive(async () => {
       const state = this.stateMachine.getState();
-      if (state !== 'none' && state !== 'pending' && state !== 'connected' && state !== 'reconnecting') {
+      if (state !== SessionStatus.None && state !== SessionStatus.Pending && state !== SessionStatus.Connected && state !== SessionStatus.Reconnecting) {
         this.logger.warn({ state, sessionId: this.sessionId }, 'reconnect() skipped: invalid state');
         return ok(undefined);
       }
 
-      if (state === 'none') {
-        const pendingTrans = this.stateMachine.transition('pending', 'reconnect-init');
+      if (state === SessionStatus.None) {
+        const pendingTrans = this.stateMachine.transition(SessionStatus.Pending, 'reconnect-init');
         if (!pendingTrans.ok) {
           this.logger.error({ state: this.stateMachine.getState(), err: pendingTrans.error, sessionId: this.sessionId }, 'reconnect() failed None→Pending transition');
           return pendingTrans;
         }
       }
 
-      const trans = this.stateMachine.transition('reconnecting', `reconnect attempt ${this.reconnectAttempts + 1}`);
+      const trans = this.stateMachine.transition(SessionStatus.Reconnecting, `reconnect attempt ${this.reconnectAttempts + 1}`);
       if (!trans.ok) {
         this.logger.error({ state: this.stateMachine.getState(), err: trans.error, sessionId: this.sessionId }, 'reconnect() failed state transition');
         return trans;
@@ -277,7 +277,7 @@ export class WhatsAppSession {
   }
 
   private setupMessageListener(socket: WASocket): void {
-    socket.ev.on(BaileysEvent.MessagesUpsert, async (m: any) => {
+    socket.ev.on(Baileys.Event.MessagesUpsert, async (m: any) => {
       this.logger.info({ sessionId: this.sessionId, type: m.type, messageCount: m.messages?.length }, 'Received messages');
       if (m.messages) {
         for (const msg of m.messages) {
@@ -290,7 +290,7 @@ export class WhatsAppSession {
   private async handleConnectionUpdate(update: any, socket?: WASocket, saveCredentials?: () => Promise<void>): Promise<void> {
     const { connection, lastDisconnect, isNewLogin } = update;
 
-    if (this.stateMachine.getState() === 'reconnecting' && this.reconnectTimeout) {
+    if (this.stateMachine.getState() === SessionStatus.Reconnecting && this.reconnectTimeout) {
       const statusCode = lastDisconnect?.error?.output?.statusCode ?? lastDisconnect?.error?.statusCode;
       const isDuplicateReconnectTrigger = isNewLogin || statusCode === BaileysDisconnectCode.RestartRequired;
       if (isDuplicateReconnectTrigger) {
@@ -301,14 +301,14 @@ export class WhatsAppSession {
 
     if (isNewLogin) {
       this.reconnectAttempts = 0;
-      const trans = this.stateMachine.transition('reconnecting', 'isNewLogin');
+      const trans = this.stateMachine.transition(SessionStatus.Reconnecting, 'isNewLogin');
       if (trans.ok) {
         await this.scheduleReconnect();
       }
       return;
     }
 
-    if (connection === BaileysConnection.Open) {
+    if (connection === Baileys.Connection.Open) {
       this.reconnectAttempts = 0;
       if (this.reconnectTimeout) {
         clearTimeout(this.reconnectTimeout);
@@ -319,7 +319,7 @@ export class WhatsAppSession {
       }
     }
 
-    if (connection === BaileysConnection.Close) {
+    if (connection === Baileys.Connection.Close) {
       const statusCode = lastDisconnect?.error?.output?.statusCode ?? lastDisconnect?.error?.statusCode;
 
       if (statusCode === BaileysDisconnectCode.LoggedOut) {
@@ -334,7 +334,7 @@ export class WhatsAppSession {
 
       if (statusCode === BaileysDisconnectCode.RestartRequired) {
         this.reconnectAttempts = 0;
-        const trans = this.stateMachine.transition('reconnecting', '515-restart-required');
+        const trans = this.stateMachine.transition(SessionStatus.Reconnecting, '515-restart-required');
         if (!trans.ok) {
           this.logger.error({ state: this.stateMachine.getState(), err: trans.error, sessionId: this.sessionId }, 'Failed 515 transition to Reconnecting, falling back to teardown');
           await this.doTeardown(true, TeardownReason.ConnectionClosed);
@@ -381,7 +381,7 @@ export class WhatsAppSession {
 
   private async handleMessage(msg: any): Promise<void> {
     const state = this.stateMachine.getState();
-    if (state !== 'connected') {
+    if (state !== SessionStatus.Connected) {
       this.logger.debug({ sessionId: this.sessionId, state }, 'Ignoring message: not connected');
       return;
     }
@@ -500,9 +500,9 @@ export class WhatsAppSession {
       auth: authState,
     });
 
-    socket.ev.on(BaileysEvent.CredsUpdate, () => { void saveCredentials(); });
+    socket.ev.on(Baileys.Event.CredsUpdate, () => { void saveCredentials(); });
 
-    socket.ev.on(BaileysEvent.ConnectionUpdate, (update) => {
+    socket.ev.on(Baileys.Event.ConnectionUpdate, (update) => {
       this.handleConnectionUpdate(update, socket, saveCredentials).catch((e) =>
         this.logger.error({ err: e, sessionId: this.sessionId }, 'Error in global connection update handler'),
       );
@@ -526,7 +526,7 @@ export class WhatsAppSession {
     const saveCredentials = async () => {
       await this.db
         .insert(whatsappSessions)
-        .values({ id: this.sessionId, status: DB_SESSION_STATUS_PENDING, creds: JSON.stringify(creds, BufferJSON.replacer) })
+        .values({ id: this.sessionId, status: SessionStatus.Pending, creds: JSON.stringify(creds, BufferJSON.replacer) })
         .onConflictDoUpdate({
           target: whatsappSessions.id,
           set: { creds: JSON.stringify(creds, BufferJSON.replacer), updatedAt: sql`(unixepoch())` },
@@ -552,14 +552,14 @@ export class WhatsAppSession {
     }
 
     this.phoneNumber = phoneFromSocket ?? this.allowedPhone;
-    const trans = this.stateMachine.transition('connected', SessionAction.ConnectionOpen);
+    const trans = this.stateMachine.transition(SessionStatus.Connected, StateMachineAction.ConnectionOpened);
     if (!trans.ok) return trans;
 
     await saveCredentials();
 
     await this.db
       .update(whatsappSessions)
-      .set({ status: DB_SESSION_STATUS_CONNECTED, phoneNumber: this.phoneNumber, updatedAt: sql`(unixepoch())` })
+      .set({ status: SessionStatus.Connected, phoneNumber: this.phoneNumber, updatedAt: sql`(unixepoch())` })
       .where(eq(whatsappSessions.id, this.sessionId));
 
     await this.emitEvent(EventName.Connected, {
@@ -594,20 +594,19 @@ export class WhatsAppSession {
     }
 
     if (deleteData) {
-      console.log('delete data');
       await this.db.delete(whatsappSessionKeys).where(eq(whatsappSessionKeys.sessionId, this.sessionId));
       await this.db.delete(whatsappSessions).where(eq(whatsappSessions.id, this.sessionId));
     } else {
       await this.db
         .update(whatsappSessions)
-        .set({ status: DB_SESSION_STATUS_DISCONNECTED })
+        .set({ status: SessionStatus.Destroyed })
         .where(eq(whatsappSessions.id, this.sessionId));
     }
 
     this.processedMessages.flushAll();
     this.lidToPhoneCache.clear();
 
-    const transitionResult = this.stateMachine.transition('destroyed', reason);
+    const transitionResult = this.stateMachine.transition(SessionStatus.Destroyed, reason);
     if (!transitionResult.ok) return transitionResult;
 
     await this.emitEvent(EventName.Disconnected, { sessionId: this.sessionId, reason });

@@ -34,31 +34,26 @@ export class AudioHandler {
     try {
       const result = await this.groqClient.processAudioMessage(audioBuffer, mimetype);
 
-      let reply: string;
       const senderLabel = senderPhoneNumber || pushName || cleanSenderJid;
 
-      // Build prefix for group messages
-      const prefix = isGroup && groupName
-        ? `👥 *${groupName}* - ${senderLabel}:\n\n`
-        : isGroup
-          ? `👥 Grupo - ${senderLabel}:\n\n`
-          : isFromSelf
-            ? ''
-            : `📱 Audio de ${senderLabel}:\n\n`;
+      const shouldShowSender = isGroup || !isFromSelf;
+      const prefix = shouldShowSender
+        ? isGroup && groupName
+          ? `👥 *${groupName}* - ${senderLabel}:\n\n`
+          : isGroup
+            ? `👥 Grupo - ${senderLabel}:\n\n`
+            : `📱 Audio de ${senderLabel}:\n\n`
+        : '';
 
-      if (!result.transcription?.trim()) {
-        reply = isFromSelf && !isGroup
-          ? '⚠️ No se pudo transcribir el audio.'
-          : `${prefix}⚠️ No se pudo transcribir el audio.`;
-      } else if (!result.summary?.trim()) {
-        reply = isFromSelf && !isGroup
-          ? `🎤 *Transcripción:*\n${result.transcription}`
-          : `${prefix}🎤 *Transcripción:*\n${result.transcription}`;
-      } else {
-        reply = isFromSelf && !isGroup
-          ? `🎤 *Transcripción:*\n${result.transcription}\n\n📝 *Resumen:*\n${result.summary}`
-          : `${prefix}🎤 *Transcripción:*\n${result.transcription}\n\n📝 *Resumen:*\n${result.summary}`;
-      }
+      const transcription = result.transcription?.trim()
+        ? `🎤 *Transcripción:*\n${result.transcription}`
+        : '⚠️ No se pudo transcribir el audio.';
+
+      const summary = result.summary?.trim()
+        ? `\n\n📝 *Resumen:*\n${result.summary}`
+        : '';
+
+      const reply = prefix + transcription + summary;
 
       await socket.sendMessage(ownerJidToUse, { text: reply });
 

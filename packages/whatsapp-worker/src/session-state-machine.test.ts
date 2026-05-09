@@ -1,17 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SessionStateMachine } from './session-state-machine.js';
-import type { SessionStatus } from './types.js';
+import { SessionStatus } from './types.js';
 
 const AllStatuses: SessionStatus[] = [
-  'none', 'pending', 'connected', 'reconnecting', 'destroyed',
+  SessionStatus.None, SessionStatus.Pending, SessionStatus.Connected, SessionStatus.Reconnecting, SessionStatus.Destroyed,
 ];
 
 const ValidTransitions: Record<SessionStatus, SessionStatus[]> = {
-  none: ['pending'],
-  pending: ['connected', 'reconnecting', 'destroyed'],
-  connected: ['reconnecting', 'destroyed'],
-  reconnecting: ['connected', 'reconnecting', 'destroyed'],
-  destroyed: [],
+  [SessionStatus.None]: [SessionStatus.Pending],
+  [SessionStatus.Pending]: [SessionStatus.Connected, SessionStatus.Reconnecting, SessionStatus.Destroyed],
+  [SessionStatus.Connected]: [SessionStatus.Reconnecting, SessionStatus.Destroyed],
+  [SessionStatus.Reconnecting]: [SessionStatus.Connected, SessionStatus.Reconnecting, SessionStatus.Destroyed],
+  [SessionStatus.Destroyed]: [],
 };
 
 describe('SessionStateMachine', () => {
@@ -23,7 +23,7 @@ describe('SessionStateMachine', () => {
 
   describe('initial state', () => {
     it('starts in "none" state', () => {
-      expect(machine.getState()).toBe('none');
+      expect(machine.getState()).toBe(SessionStatus.None);
     });
 
     it('has an empty transition log', () => {
@@ -32,7 +32,7 @@ describe('SessionStateMachine', () => {
   });
 
   describe('canTransition', () => {
-    it.each(AllStatuses.filter((s) => s !== 'none') as SessionStatus[])(
+    it.each(AllStatuses.filter((s) => s !== SessionStatus.None) as SessionStatus[])(
       'returns false for invalid transition from none to %s',
       (to) => {
         if (!ValidTransitions.none.includes(to)) {
@@ -42,95 +42,95 @@ describe('SessionStateMachine', () => {
     );
 
     it('returns true for valid transition none -> pending', () => {
-      expect(machine.canTransition('pending')).toBe(true);
+      expect(machine.canTransition(SessionStatus.Pending)).toBe(true);
     });
 
     it('returns false for valid target when not in correct source state', () => {
-      expect(machine.canTransition('connected')).toBe(false);
+      expect(machine.canTransition(SessionStatus.Connected)).toBe(false);
     });
   });
 
   describe('valid transitions', () => {
     it('none -> pending', () => {
-      const result = machine.transition('pending', 'session-start');
+      const result = machine.transition(SessionStatus.Pending, 'session-start');
       expect(result.ok).toBe(true);
-      expect(machine.getState()).toBe('pending');
+      expect(machine.getState()).toBe(SessionStatus.Pending);
     });
 
     it('pending -> connected', () => {
-      machine.transition('pending', 'session-start');
-      const result = machine.transition('connected', 'connection-established');
+      machine.transition(SessionStatus.Pending, 'session-start');
+      const result = machine.transition(SessionStatus.Connected, 'connection-established');
       expect(result.ok).toBe(true);
-      expect(machine.getState()).toBe('connected');
+      expect(machine.getState()).toBe(SessionStatus.Connected);
     });
 
     it('pending -> reconnecting', () => {
-      machine.transition('pending', 'session-start');
-      const result = machine.transition('reconnecting', 'connection-lost');
+      machine.transition(SessionStatus.Pending, 'session-start');
+      const result = machine.transition(SessionStatus.Reconnecting, 'connection-lost');
       expect(result.ok).toBe(true);
-      expect(machine.getState()).toBe('reconnecting');
+      expect(machine.getState()).toBe(SessionStatus.Reconnecting);
     });
 
     it('pending -> destroyed', () => {
-      machine.transition('pending', 'session-start');
-      const result = machine.transition('destroyed', 'session-killed');
+      machine.transition(SessionStatus.Pending, 'session-start');
+      const result = machine.transition(SessionStatus.Destroyed, 'session-killed');
       expect(result.ok).toBe(true);
-      expect(machine.getState()).toBe('destroyed');
+      expect(machine.getState()).toBe(SessionStatus.Destroyed);
     });
 
     it('connected -> reconnecting', () => {
-      machine.transition('pending', 'session-start');
-      machine.transition('connected', 'connection-established');
-      const result = machine.transition('reconnecting', 'connection-lost');
+      machine.transition(SessionStatus.Pending, 'session-start');
+      machine.transition(SessionStatus.Connected, 'connection-established');
+      const result = machine.transition(SessionStatus.Reconnecting, 'connection-lost');
       expect(result.ok).toBe(true);
-      expect(machine.getState()).toBe('reconnecting');
+      expect(machine.getState()).toBe(SessionStatus.Reconnecting);
     });
 
     it('connected -> destroyed', () => {
-      machine.transition('pending', 'session-start');
-      machine.transition('connected', 'connection-established');
-      const result = machine.transition('destroyed', 'session-killed');
+      machine.transition(SessionStatus.Pending, 'session-start');
+      machine.transition(SessionStatus.Connected, 'connection-established');
+      const result = machine.transition(SessionStatus.Destroyed, 'session-killed');
       expect(result.ok).toBe(true);
-      expect(machine.getState()).toBe('destroyed');
+      expect(machine.getState()).toBe(SessionStatus.Destroyed);
     });
 
     it('reconnecting -> connected', () => {
-      machine.transition('pending', 'session-start');
-      machine.transition('connected', 'connection-established');
-      machine.transition('reconnecting', 'connection-lost');
-      const result = machine.transition('connected', 'connection-restored');
+      machine.transition(SessionStatus.Pending, 'session-start');
+      machine.transition(SessionStatus.Connected, 'connection-established');
+      machine.transition(SessionStatus.Reconnecting, 'connection-lost');
+      const result = machine.transition(SessionStatus.Connected, 'connection-restored');
       expect(result.ok).toBe(true);
-      expect(machine.getState()).toBe('connected');
+      expect(machine.getState()).toBe(SessionStatus.Connected);
     });
 
     it('reconnecting -> reconnecting (self-loop)', () => {
-      machine.transition('pending', 'session-start');
-      machine.transition('connected', 'connection-established');
-      machine.transition('reconnecting', 'connection-lost');
-      const result = machine.transition('reconnecting', 'retry-connection');
+      machine.transition(SessionStatus.Pending, 'session-start');
+      machine.transition(SessionStatus.Connected, 'connection-established');
+      machine.transition(SessionStatus.Reconnecting, 'connection-lost');
+      const result = machine.transition(SessionStatus.Reconnecting, 'retry-connection');
       expect(result.ok).toBe(true);
-      expect(machine.getState()).toBe('reconnecting');
+      expect(machine.getState()).toBe(SessionStatus.Reconnecting);
     });
 
     it('reconnecting -> destroyed', () => {
-      machine.transition('pending', 'session-start');
-      machine.transition('connected', 'connection-established');
-      machine.transition('reconnecting', 'connection-lost');
-      const result = machine.transition('destroyed', 'session-killed');
+      machine.transition(SessionStatus.Pending, 'session-start');
+      machine.transition(SessionStatus.Connected, 'connection-established');
+      machine.transition(SessionStatus.Reconnecting, 'connection-lost');
+      const result = machine.transition(SessionStatus.Destroyed, 'session-killed');
       expect(result.ok).toBe(true);
-      expect(machine.getState()).toBe('destroyed');
+      expect(machine.getState()).toBe(SessionStatus.Destroyed);
     });
   });
 
   describe('invalid transitions', () => {
     it.each([
-      ['none', 'connected'],
-      ['none', 'reconnecting'],
-      ['none', 'destroyed'],
+      [SessionStatus.None, SessionStatus.Connected],
+      [SessionStatus.None, SessionStatus.Reconnecting],
+      [SessionStatus.None, SessionStatus.Destroyed],
     ] as [SessionStatus, SessionStatus][])(
       'rejects invalid transition %s -> %s',
       (from, to) => {
-        if (from === 'none') {
+        if (from === SessionStatus.None) {
           const result = machine.transition(to, 'invalid-attempt');
           expect(result.ok).toBe(false);
           if (!result.ok) {
@@ -141,7 +141,7 @@ describe('SessionStateMachine', () => {
     );
 
     it('rejects none -> connected', () => {
-      const result = machine.transition('connected', 'skip-pending');
+      const result = machine.transition(SessionStatus.Connected, 'skip-pending');
       expect(result.ok).toBe(false);
       if (!result.ok) {
         expect(result.error.message).toBe('Invalid transition: none -> connected: skip-pending');
@@ -149,7 +149,7 @@ describe('SessionStateMachine', () => {
     });
 
     it('rejects none -> reconnecting', () => {
-      const result = machine.transition('reconnecting', 'skip-pending');
+      const result = machine.transition(SessionStatus.Reconnecting, 'skip-pending');
       expect(result.ok).toBe(false);
       if (!result.ok) {
         expect(result.error.message).toBe('Invalid transition: none -> reconnecting: skip-pending');
@@ -157,7 +157,7 @@ describe('SessionStateMachine', () => {
     });
 
     it('rejects none -> destroyed', () => {
-      const result = machine.transition('destroyed', 'direct-destroy');
+      const result = machine.transition(SessionStatus.Destroyed, 'direct-destroy');
       expect(result.ok).toBe(false);
       if (!result.ok) {
         expect(result.error.message).toBe('Invalid transition: none -> destroyed: direct-destroy');
@@ -165,9 +165,9 @@ describe('SessionStateMachine', () => {
     });
 
     it('rejects connected -> pending', () => {
-      machine.transition('pending', 'start');
-      machine.transition('connected', 'up');
-      const result = machine.transition('pending', 'back-to-pending');
+      machine.transition(SessionStatus.Pending, 'start');
+      machine.transition(SessionStatus.Connected, 'up');
+      const result = machine.transition(SessionStatus.Pending, 'back-to-pending');
       expect(result.ok).toBe(false);
       if (!result.ok) {
         expect(result.error.message).toBe('Invalid transition: connected -> pending: back-to-pending');
@@ -175,9 +175,9 @@ describe('SessionStateMachine', () => {
     });
 
     it('rejects connected -> connected (self-loop)', () => {
-      machine.transition('pending', 'start');
-      machine.transition('connected', 'up');
-      const result = machine.transition('connected', 'already-connected');
+      machine.transition(SessionStatus.Pending, 'start');
+      machine.transition(SessionStatus.Connected, 'up');
+      const result = machine.transition(SessionStatus.Connected, 'already-connected');
       expect(result.ok).toBe(false);
       if (!result.ok) {
         expect(result.error.message).toBe('Invalid transition: connected -> connected: already-connected');
@@ -185,8 +185,8 @@ describe('SessionStateMachine', () => {
     });
 
     it('rejects destroyed -> any state', () => {
-      machine.transition('pending', 'start');
-      machine.transition('destroyed', 'kill');
+      machine.transition(SessionStatus.Pending, 'start');
+      machine.transition(SessionStatus.Destroyed, 'kill');
       for (const target of AllStatuses) {
         const result = machine.transition(target, `try-${target}`);
         expect(result.ok).toBe(false);
@@ -197,48 +197,48 @@ describe('SessionStateMachine', () => {
     });
 
     it('does not change state on invalid transition', () => {
-      const result = machine.transition('connected', 'skip');
+      const result = machine.transition(SessionStatus.Connected, 'skip');
       expect(result.ok).toBe(false);
-      expect(machine.getState()).toBe('none');
+      expect(machine.getState()).toBe(SessionStatus.None);
     });
   });
 
   describe('transition log', () => {
     it('records a log entry with from, to, timestamp, and context', () => {
       const before = Date.now();
-      machine.transition('pending', 'session-start');
+      machine.transition(SessionStatus.Pending, 'session-start');
       const after = Date.now();
 
       const log = machine.getLog();
       expect(log).toHaveLength(1);
-      expect(log[0].from).toBe('none');
-      expect(log[0].to).toBe('pending');
+      expect(log[0].from).toBe(SessionStatus.None);
+      expect(log[0].to).toBe(SessionStatus.Pending);
       expect(log[0].context).toBe('session-start');
       expect(log[0].at).toBeGreaterThanOrEqual(before);
       expect(log[0].at).toBeLessThanOrEqual(after);
     });
 
     it('accumulates multiple transitions', () => {
-      machine.transition('pending', 'start');
-      machine.transition('connected', 'up');
-      machine.transition('reconnecting', 'lost');
-      machine.transition('connected', 'restored');
+      machine.transition(SessionStatus.Pending, 'start');
+      machine.transition(SessionStatus.Connected, 'up');
+      machine.transition(SessionStatus.Reconnecting, 'lost');
+      machine.transition(SessionStatus.Connected, 'restored');
 
       const log = machine.getLog();
       expect(log).toHaveLength(4);
-      expect(log[0]).toEqual({ from: 'none', to: 'pending', at: expect.any(Number), context: 'start' });
-      expect(log[1]).toEqual({ from: 'pending', to: 'connected', at: expect.any(Number), context: 'up' });
-      expect(log[2]).toEqual({ from: 'connected', to: 'reconnecting', at: expect.any(Number), context: 'lost' });
-      expect(log[3]).toEqual({ from: 'reconnecting', to: 'connected', at: expect.any(Number), context: 'restored' });
+      expect(log[0]).toEqual({ from: SessionStatus.None, to: SessionStatus.Pending, at: expect.any(Number), context: 'start' });
+      expect(log[1]).toEqual({ from: SessionStatus.Pending, to: SessionStatus.Connected, at: expect.any(Number), context: 'up' });
+      expect(log[2]).toEqual({ from: SessionStatus.Connected, to: SessionStatus.Reconnecting, at: expect.any(Number), context: 'lost' });
+      expect(log[3]).toEqual({ from: SessionStatus.Reconnecting, to: SessionStatus.Connected, at: expect.any(Number), context: 'restored' });
     });
 
     it('does not record invalid transitions', () => {
-      machine.transition('connected', 'skip');
+      machine.transition(SessionStatus.Connected, 'skip');
       expect(machine.getLog()).toHaveLength(0);
     });
 
     it('returns a readonly snapshot (mutation safe)', () => {
-      machine.transition('pending', 'start');
+      machine.transition(SessionStatus.Pending, 'start');
       const log = machine.getLog();
       expect(log).toHaveLength(1);
     });
@@ -249,10 +249,10 @@ describe('SessionStateMachine', () => {
       const listener = vi.fn();
       machine.onTransition(listener);
 
-      machine.transition('pending', 'session-start');
+      machine.transition(SessionStatus.Pending, 'session-start');
 
       expect(listener).toHaveBeenCalledOnce();
-      expect(listener).toHaveBeenCalledWith('none', 'pending', 'session-start');
+      expect(listener).toHaveBeenCalledWith(SessionStatus.None, SessionStatus.Pending, 'session-start');
     });
 
     it('calls multiple listeners in order', () => {
@@ -262,7 +262,7 @@ describe('SessionStateMachine', () => {
       machine.onTransition(listenerA);
       machine.onTransition(listenerB);
 
-      machine.transition('pending', 'start');
+      machine.transition(SessionStatus.Pending, 'start');
 
       expect(callOrder).toEqual(['A', 'B']);
     });
@@ -275,10 +275,10 @@ describe('SessionStateMachine', () => {
       machine.onTransition(badListener);
       machine.onTransition(goodListener);
 
-      const result = machine.transition('pending', 'start');
+      const result = machine.transition(SessionStatus.Pending, 'start');
 
       expect(result.ok).toBe(true);
-      expect(machine.getState()).toBe('pending');
+      expect(machine.getState()).toBe(SessionStatus.Pending);
       expect(badListener).toHaveBeenCalledOnce();
       expect(goodListener).toHaveBeenCalledOnce();
     });
@@ -288,7 +288,7 @@ describe('SessionStateMachine', () => {
       const unsubscribe = machine.onTransition(listener);
 
       unsubscribe();
-      machine.transition('pending', 'start');
+      machine.transition(SessionStatus.Pending, 'start');
 
       expect(listener).not.toHaveBeenCalled();
     });
@@ -300,7 +300,7 @@ describe('SessionStateMachine', () => {
       machine.onTransition(listenerB);
 
       unsubA();
-      machine.transition('pending', 'start');
+      machine.transition(SessionStatus.Pending, 'start');
 
       expect(listenerA).not.toHaveBeenCalled();
       expect(listenerB).toHaveBeenCalledOnce();
@@ -310,7 +310,7 @@ describe('SessionStateMachine', () => {
       const listener = vi.fn();
       machine.onTransition(listener);
 
-      machine.transition('connected', 'invalid');
+      machine.transition(SessionStatus.Connected, 'invalid');
 
       expect(listener).not.toHaveBeenCalled();
     });
@@ -318,38 +318,38 @@ describe('SessionStateMachine', () => {
 
   describe('full lifecycle', () => {
     it('none -> pending -> connected -> reconnecting -> connected -> destroyed', () => {
-      machine.transition('pending', 'start');
-      machine.transition('connected', 'up');
-      machine.transition('reconnecting', 'lost');
-      machine.transition('connected', 'restored');
-      machine.transition('destroyed', 'kill');
+      machine.transition(SessionStatus.Pending, 'start');
+      machine.transition(SessionStatus.Connected, 'up');
+      machine.transition(SessionStatus.Reconnecting, 'lost');
+      machine.transition(SessionStatus.Connected, 'restored');
+      machine.transition(SessionStatus.Destroyed, 'kill');
 
-      expect(machine.getState()).toBe('destroyed');
+      expect(machine.getState()).toBe(SessionStatus.Destroyed);
       expect(machine.getLog()).toHaveLength(5);
 
-      const result = machine.transition('pending', 'impossible');
+      const result = machine.transition(SessionStatus.Pending, 'impossible');
       expect(result.ok).toBe(false);
     });
   });
 
   describe('exhaustive invalid transition coverage', () => {
     const InvalidTransitions: [SessionStatus, SessionStatus][] = [
-      ['none', 'none'],
-      ['none', 'connected'],
-      ['none', 'reconnecting'],
-      ['none', 'destroyed'],
-      ['pending', 'none'],
-      ['pending', 'pending'],
-      ['connected', 'none'],
-      ['connected', 'pending'],
-      ['connected', 'connected'],
-      ['reconnecting', 'none'],
-      ['reconnecting', 'pending'],
-      ['destroyed', 'none'],
-      ['destroyed', 'pending'],
-      ['destroyed', 'connected'],
-      ['destroyed', 'reconnecting'],
-      ['destroyed', 'destroyed'],
+      [SessionStatus.None, SessionStatus.None],
+      [SessionStatus.None, SessionStatus.Connected],
+      [SessionStatus.None, SessionStatus.Reconnecting],
+      [SessionStatus.None, SessionStatus.Destroyed],
+      [SessionStatus.Pending, SessionStatus.None],
+      [SessionStatus.Pending, SessionStatus.Pending],
+      [SessionStatus.Connected, SessionStatus.None],
+      [SessionStatus.Connected, SessionStatus.Pending],
+      [SessionStatus.Connected, SessionStatus.Connected],
+      [SessionStatus.Reconnecting, SessionStatus.None],
+      [SessionStatus.Reconnecting, SessionStatus.Pending],
+      [SessionStatus.Destroyed, SessionStatus.None],
+      [SessionStatus.Destroyed, SessionStatus.Pending],
+      [SessionStatus.Destroyed, SessionStatus.Connected],
+      [SessionStatus.Destroyed, SessionStatus.Reconnecting],
+      [SessionStatus.Destroyed, SessionStatus.Destroyed],
     ];
 
     it.each(InvalidTransitions)(
@@ -376,10 +376,10 @@ type TransitionStep = [SessionStatus, string];
 function buildPathTo(target: SessionStatus): TransitionStep[] {
   const paths: Record<SessionStatus, TransitionStep[]> = {
     none: [],
-    pending: [['pending', 'start']],
-    connected: [['pending', 'start'], ['connected', 'up']],
-    reconnecting: [['pending', 'start'], ['connected', 'up'], ['reconnecting', 'lost']],
-    destroyed: [['pending', 'start'], ['destroyed', 'kill']],
+    pending: [[SessionStatus.Pending, 'start']],
+    connected: [[SessionStatus.Pending, 'start'], [SessionStatus.Connected, 'up']],
+    reconnecting: [[SessionStatus.Pending, 'start'], [SessionStatus.Connected, 'up'], [SessionStatus.Reconnecting, 'lost']],
+    destroyed: [[SessionStatus.Pending, 'start'], [SessionStatus.Destroyed, 'kill']],
   };
   return paths[target];
 }

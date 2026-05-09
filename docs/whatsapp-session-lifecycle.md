@@ -2,13 +2,13 @@
 
 ## Máquina de Estados
 
-Una sesión transita por un conjunto finito de estados. Cada transición cuenta con un único punto de entrada (`teardownSession`) para la limpieza, lo que elimina errores de doble eliminación y fugas del almacén de claves.
+Una sesión transita por un conjunto finito de estados. Cada transición cuenta con un único punto de entrada (`doTeardown`) para la limpieza, lo que elimina errores de doble eliminación y fugas del almacén de claves.
 
 ```mermaid
 stateDiagram-v2
     direction TB
 
-    [*] --> none : createConnection() / requestPairingCode()
+    [*] --> none : startQR() / startPairing()
     none --> pending : WebSocket abierto, esperando QR o pairing code
     pending --> pending : QR generado (resuelve promesa)
     pending --> pending : Pairing code generado (resuelve promesa)
@@ -25,7 +25,7 @@ stateDiagram-v2
     reconnecting --> destroyed : máx. reintentos excedido / 401
 
     destroyed --> [*] : datos eliminados (no se pueden restaurar)
-    destroyed --> none : createConnection() / requestPairingCode() con el mismo ID
+    destroyed --> none : startQR() / startPairing() con el mismo ID
 ```
 
 ### Descripción de los Estados
@@ -42,18 +42,18 @@ stateDiagram-v2
 
 Existen únicamente dos formas en que una sesión abandona la máquina:
 
-1. **`teardownSession(id, { deleteData: true })`** — Elimina los datos de la base de datos. Utilizado para: cierre de sesión 401, número de teléfono no coincidente, solicitud de desconexión, timeout de QR, timeout de pairing code, cierre de conexión antes del QR. La sesión no puede restaurarse.
-2. **`teardownSession(id, { deleteData: false })`** — Preserva los datos de la base de datos. Utilizado para: apagado ordenado, preparación de reconexión. La sesión puede restaurarse al reiniciar.
+1. **`doTeardown(deleteData: true)`** — Elimina los datos de la base de datos. Utilizado para: cierre de sesión 401, número de teléfono no coincidente, solicitud de desconexión, timeout de QR, timeout de pairing code, cierre de conexión antes del QR. La sesión no puede restaurarse.
+2. **`doTeardown(deleteData: false)`** — Preserva los datos de la base de datos. Utilizado para: apagado ordenado. La sesión puede restaurarse al reiniciar.
 
 ## Tabla de Decisiones de Desconexión
 
-Cada sitio de invocación que finaliza una sesión pasa por `teardownSession`. A continuación se detalla cuándo se utiliza cada modo:
+Cada sitio de invocación que finaliza una sesión pasa por `doTeardown`. A continuación se detalla cuándo se utiliza cada modo:
 
 ```mermaid
 flowchart TD
     A[La sesión necesita finalización] --> B{¿Deben sobrevivir los datos al reinicio?}
-    B -->|No| C[teardown deleteData: true]
-    B -->|Sí| D[teardown deleteData: false]
+    B -->|No| C[doTeardown deleteData: true]
+    B -->|Sí| D[doTeardown deleteData: false]
 
     C --> C1[401: sesión cerrada]
     C --> C2[Número de teléfono no coincide]
@@ -63,7 +63,6 @@ flowchart TD
     C --> C6[Cierre de conexión antes del QR]
 
     D --> D1[Apagado ordenado - preservar para restaurar]
-    D --> D2[createConnection reemplazando sesión existente]
 ```
 
 | Disparador | `deleteData` | Motivo |
@@ -75,7 +74,7 @@ flowchart TD
 | Timeout de pairing code (60s) | `true` | Aún no se estableció una sesión válida |
 | Cierre de conexión antes del QR | `true` | Aún no se estableció una sesión válida |
 | Apagado ordenado (`destroy()`) | `false` | Debe sobrevivir al reinicio del contenedor |
-| `createConnection` reemplazando existente | `false` | Las credenciales pueden seguir siendo válidas para reconectar |
+| `startQR`/`startPairing` reemplazando existente | `true` | Reemplazar la sesión limpia, datos frescos |
 | Programación de reconexión (evento close) | Ninguno | Sin teardown — solo programa la reconexión |
 
 ## Diagramas de Secuencia
@@ -85,26 +84,22 @@ flowchart TD
 ```mermaid
 sequenceDiagram
     participant BOT as ChepibeBot.getQR()
-    participant MGR as BaileysConnectionManager
     participant DB as SQLite
+    participant WS as WhatsAppSession
     participant BA as Baileys (WhatsApp)
-    participant WS as WebSocket
 
-    BOT->>MGR: createConnection(sessionId)
-    MGR->>MGR: teardownSession(id, deleteData: false) si existe
-    MGR->>DB: loadOrCreateAuthState() — cargar o iniciar creds
-    MGR->>DB: SqliteKeyStore.loadFromDB()
-    MGR->>BA: makeWASocket(creds, keys)
-    BA->>WS: conectar a servidores de WhatsApp
-    WS-->>BA: código QR
-    BA-->>MGR: connection.update { qr }
-    MGR-->>BOT: { qrCode }
+    BOT->>WS: startQR()
+    WS->>WS: Mutex lock
+    WS->>DB: loadOrCreateAuthState() — cargar o iniciar creds
+    WS->>DB: SignalKeyStore.loadFromDB()
+    WS->>BA: makeWASocket(creds, keys)
+    BA-->>WS: connection.update { qr }
+    WS-->>BOT: { qrCode }
     Note over BOT: El usuario escanea el QR
-    WS-->>BA: connection.open
-    BA-->>MGR: connection.update { connection: "open" }
-    MGR->>DB: saveCredentials()
-    MGR->>DB: updateSessionStatus("connected")
-    MGR-->>MGR: emitir CONNECTED
+    BA-->>WS: connection.update { connection: "open" }
+    WS->>DB: saveCredentials()
+    WS->>DB: updateSessionStatus("connected")
+    WS-->>WS: emitir CONNECTED
 ```
 
 ### Conexión Nueva con Código de Emparejamiento (Pairing Code)
@@ -116,36 +111,34 @@ sequenceDiagram
     participant W as Web UI (/qr)
     participant SVR as +page.server.ts
     participant BOT as ChepibeBot.requestPairingCode()
-    participant MGR as BaileysConnectionManager
+    participant WS as WhatsAppSession
     participant DB as SQLite
     participant BA as Baileys (WhatsApp)
-    participant WS as WebSocket
 
     W->>SVR: POST form (action default)
     SVR->>SVR: Lee ALLOWED_PHONE de env
-    SVR->>BOT: requestPairingCode(sessionId, phoneNumber)
-    BOT->>MGR: requestPairingCode(sessionId, phoneNumber)
-    MGR->>DB: teardownSession(id, deleteData: true)
-    MGR->>DB: loadOrCreateAuthState() — cargar o iniciar creds
-    MGR->>DB: SqliteKeyStore.loadFromDB()
-    MGR->>BA: makeWASocket(creds, keys)
-    BA->>WS: conectar a servidores de WhatsApp
-    WS-->>BA: código QR interno
-    BA-->>MGR: connection.update { qr }
-    MGR->>BA: socket.requestPairingCode(phoneNumber)
-    BA-->>MGR: código de 8 dígitos
-    MGR-->>BOT: { code }
+    SVR->>BOT: requestPairingCode(phoneNumber)
+    BOT->>WS: startPairing(phoneNumber)
+    WS->>WS: Mutex lock
+    WS->>DB: loadOrCreateAuthState() — cargar o iniciar creds
+    WS->>DB: SignalKeyStore.loadFromDB()
+    WS->>BA: makeWASocket(creds, keys)
+    BA-->>WS: connection.update { qr }
+    WS->>BA: socket.requestPairingCode(phoneNumber)
+    BA-->>WS: código de 8 dígitos
+    WS-->>BOT: { code }
     BOT-->>SVR: { code }
     SVR-->>W: Muestra código de 8 dígitos
-    Note over W: El usuario ingresa el código en<br/>WhatsApp → Dispositivos Vinculados →<br/>Vincular un dispositivo
-    WS-->>BA: connection.open
-    BA-->>MGR: connection.update { connection: "open" }
-    MGR->>DB: saveCredentials()
-    MGR->>DB: updateSessionStatus("connected")
-    MGR-->>MGR: emitir CONNECTED
+    Note over W: El usuario ingresa el código en
+    WhatsApp → Dispositivos Vinculados →
+    Vincular un dispositivo
+    BA-->>WS: connection.update { connection: "open" }
+    WS->>DB: saveCredentials()
+    WS->>DB: updateSessionStatus("connected")
+    WS-->>WS: emitir CONNECTED
 ```
 
-**Duración del timeout:** 60 segundos. Si el código no se ingresa en ese tiempo, la sesión se destruye (`teardownSession` con `deleteData: true, reason: 'pairing_timeout'`).
+**Duración del timeout:** 60 segundos. Si el código no se ingresa en ese tiempo, la sesión se destruye (`doTeardown(deleteData: true, reason: 'pairing_timeout')`).
 
 **Número de teléfono:** Se toma de la variable de entorno `ALLOWED_PHONE` (formato internacional sin el signo `+`, ej. `5491171234567`).
 
@@ -154,20 +147,18 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant BOT as ChepibeBot.start()
-    participant MGR as BaileysConnectionManager
     participant DB as SQLite
+    participant WS as WhatsAppSession
     participant BA as Baileys (WhatsApp)
 
-    BOT->>MGR: restoreSessions()
-    MGR->>DB: SELECT * FROM whatsapp_sessions
-    loop Para cada sesión con creds
-        MGR->>DB: loadOrCreateAuthState() — cargar creds guardadas
-        MGR->>DB: SqliteKeyStore.loadFromDB()
-        MGR->>BA: makeWASocket(savedCreds, savedKeys)
-        BA-->>MGR: connection.update { connection: "open" }
-        MGR->>DB: saveCredentials()
-        MGR->>DB: updateSessionStatus("connected")
-    end
+    BOT->>DB: SELECT * FROM whatsapp_sessions LIMIT 1
+    BOT->>WS: new WhatsAppSession(sessionId, db, ...)
+    WS->>DB: loadOrCreateAuthState() — cargar creds guardadas
+    WS->>DB: SignalKeyStore.loadFromDB()
+    WS->>BA: makeWASocket(savedCreds, savedKeys)
+    BA-->>WS: connection.update { connection: "open" }
+    WS->>DB: saveCredentials()
+    WS->>DB: updateSessionStatus("connected")
 ```
 
 ### Cierre de Conexión + Reconexión
@@ -175,19 +166,19 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant BA as Baileys (WhatsApp)
-    participant MGR as BaileysConnectionManager
+    participant WS as WhatsAppSession
     participant DB as SQLite
 
-    BA-->>MGR: connection.update { connection: "close", statusCode: 428 }
-    MGR->>MGR: reconnectAttempts++
-    MGR->>MGR: Programar reconexión (retardo 2^intentos, máx. 60s)
-    Note over MGR: Tras el retardo...
-    MGR->>DB: loadOrCreateAuthState() — cargar creds guardadas
-    MGR->>DB: SqliteKeyStore.loadFromDB()
-    MGR->>BA: makeWASocket(savedCreds)
-    BA-->>MGR: connection.update { connection: "open" }
-    MGR->>DB: saveCredentials()
-    MGR->>DB: updateSessionStatus("connected")
+    BA-->>WS: connection.update { connection: "close", statusCode: 428 }
+    WS->>WS: reconnectAttempts++
+    WS->>WS: Programar reconexión (retardo 2^intentos, máx. 60s)
+    Note over WS: Tras el retardo...
+    WS->>DB: loadOrCreateAuthState() — cargar creds guardadas
+    WS->>DB: SignalKeyStore.loadFromDB()
+    WS->>BA: makeWASocket(savedCreds)
+    BA-->>WS: connection.update { connection: "open" }
+    WS->>DB: saveCredentials()
+    WS->>DB: updateSessionStatus("connected")
 ```
 
 ### Cierre de Sesión 401 (Permanente)
@@ -195,18 +186,17 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant BA as Baileys (WhatsApp)
-    participant MGR as BaileysConnectionManager
+    participant WS as WhatsAppSession
     participant DB as SQLite
 
-    BA-->>MGR: connection.update { connection: "close", statusCode: 401 }
-    MGR->>MGR: teardownSession(id, { deleteData: true, reason: "logged_out" })
-    MGR->>MGR: cancelar temporizadores de reconexión
-    MGR->>MGR: vaciar escrituras de claves pendientes
-    MGR->>MGR: cerrar WebSocket
-    MGR->>DB: DELETE FROM whatsapp_session_keys WHERE sessionId = ?
-    MGR->>DB: DELETE FROM whatsapp_sessions WHERE id = ?
-    MGR->>MGR: eliminar del mapa de sesiones
-    MGR-->>MGR: emitir DISCONNECTED { reason: "logged_out" }
+    BA-->>WS: connection.update { connection: "close", statusCode: 401 }
+    WS->>WS: doTeardown(deleteData: true, reason: "logged_out")
+    WS->>WS: cancelar temporizadores de reconexión
+    WS->>WS: vaciar escrituras de claves pendientes
+    WS->>WS: cerrar WebSocket
+    WS->>DB: DELETE FROM whatsapp_session_keys WHERE sessionId = ?
+    WS->>DB: DELETE FROM whatsapp_sessions WHERE id = ?
+    WS-->>WS: emitir DISCONNECTED { reason: "logged_out" }
 ```
 
 ### Solicitud de Desconexión
@@ -214,18 +204,17 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant BOT as ChepibeBot.disconnect()
-    participant MGR as BaileysConnectionManager
+    participant WS as WhatsAppSession
     participant DB as SQLite
 
-    BOT->>MGR: disconnectSession(sessionId)
-    MGR->>MGR: teardownSession(id, { deleteData: true })
-    MGR->>MGR: cancelar temporizadores de reconexión
-    MGR->>MGR: vaciar escrituras de claves pendientes
-    MGR->>MGR: cerrar WebSocket
-    MGR->>DB: DELETE FROM whatsapp_session_keys WHERE sessionId = ?
-    MGR->>DB: DELETE FROM whatsapp_sessions WHERE id = ?
-    MGR->>MGR: eliminar del mapa de sesiones
-    MGR-->>BOT: vacío
+    BOT->>WS: destroy()
+    WS->>WS: doTeardown(deleteData: true)
+    WS->>WS: cancelar temporizadores de reconexión
+    WS->>WS: vaciar escrituras de claves pendientes
+    WS->>WS: cerrar WebSocket
+    WS->>DB: DELETE FROM whatsapp_session_keys WHERE sessionId = ?
+    WS->>DB: DELETE FROM whatsapp_sessions WHERE id = ?
+    WS-->>BOT: vacío
 ```
 
 ### Apagado Ordenado
@@ -234,56 +223,15 @@ sequenceDiagram
 sequenceDiagram
     participant SIG as SIGTERM/SIGINT
     participant BOT as ChepibeBot.destroy()
-    participant MGR as BaileysConnectionManager
+    participant WS as WhatsAppSession
     participant DB as SQLite
 
     SIG->>BOT: señal de apagado
-    BOT->>MGR: destroy()
-    loop Para cada sesión activa
-        MGR->>MGR: teardownSession(id, { deleteData: false })
-        MGR->>MGR: cancelar temporizadores de reconexión
-        MGR->>MGR: vaciar escrituras de claves pendientes
-        MGR->>MGR: cerrar WebSocket
-        MGR->>DB: UPDATE sessions SET status = "disconnected"
-        Note over DB: Datos preservados para restaurar en el próximo inicio
-    end
+    BOT->>WS: destroy()
+    WS->>WS: doTeardown(deleteData: false)
+    WS->>WS: cancelar temporizadores de reconexión
+    WS->>WS: vaciar escrituras de claves pendientes
+    WS->>WS: cerrar WebSocket
+    WS->>DB: UPDATE sessions SET status = "destroyed"
+    Note over DB: Datos preservados para restaurar en el próximo inicio
 ```
-
-## Canalización de Flush del Almacén de Claves
-
-Las claves del protocolo Signal no se escriben en la base de datos inmediatamente: se agrupan en lotes y se persisten cada 2 segundos.
-
-```mermaid
-flowchart TB
-    A["Baileys creds.update"] --> B["SqliteKeyStore.set()"]
-    B --> C["cache.set(key, value)"]
-    B --> D["mutationQueue.push({type, id, value, operation})"]
-
-    E["⏱️ Cada 2s o cola > 1000"] --> F["flushMutations()"]
-    F --> G["batch = mutationQueue.splice(0)"]
-    G --> H["UPSERT / DELETE en SQLite"]
-    H --> I{"¿Error?"}
-    I -->|SQLITE_READONLY_DBMOVED| J["Reintentar hasta 3 veces"]
-    J -->|Falló 3 veces| K["🗑️ Descartar cola"]
-    I -->|Otro error| L["Re-encolar lote<br/>reintentar próximo intervalo"]
-    I -->|OK| M["✅ Flush exitoso"]
-
-    N["Finalización de sesión"] --> O["forceFlush()"]
-    O --> P["destroy()<br/>(detiene intervalo de flush)"]
-
-    style K fill:#ffcccc,stroke:#ff0000
-    style M fill:#ccffcc,stroke:#00cc00
-```
-
-## Protección contra SQLITE_READONLY_DBMOVED
-
-La aplicación establece `PRAGMA journal_mode=DELETE` al momento de la conexión para evitar que el auto-checkpoint de WAL modifique el inodo del archivo de la base de datos en montajes enlazados de Docker sobre macOS (osxfs).
-
-Como medida de defensa en profundidad, `SqliteKeyStore.flushMutations()` detecta específicamente los errores DBMOVED:
-
-1. En la primera ocurrencia: registra el error e intenta `PRAGMA journal_mode=DELETE` para recuperar la conexión
-2. Hasta 3 reintentos: continúa intentando los flushes
-3. Tras 3 fallas consecutivas: descarta la cola de mutaciones (evita el crecimiento ilimitado y el cierre por rechazo de promesa no manejado) y registra `fatal`
-4. En un flush exitoso: reinicia el contador de errores consecutivos
-
-Esto evita la espiral de fallos que anteriormente provocaba el cierre del proceso: las mutaciones se acumulaban, cada flush fallaba con DBMOVED y finalmente se producía un rechazo de promesa no manejado.

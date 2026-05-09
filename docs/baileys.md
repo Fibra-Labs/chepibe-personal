@@ -16,21 +16,21 @@
 
 ```mermaid
 sequenceDiagram
-    participant W as Worker
+    participant B as ChepibeBot
     participant WS as WhatsApp WebSocket
     participant U as Usuario
     participant DB as SQLite
 
-    W->>WS: Crea WebSocket
-    WS-->>W: Envia código QR
-    W->>U: Muestra QR en Web UI
+    B->>WS: Crea WebSocket
+    WS-->>B: Envia código QR
+    B->>U: Muestra QR en Web UI
     U->>WS: Escanea QR desde teléfono
-    WS-->>W: Valida y autoriza sesión
-    W->>DB: Persiste creds + Signal Keys
-    W->>W: Marca sesión como "connected"
+    WS-->>B: Valida y autoriza sesión
+    B->>DB: Persiste creds + Signal Keys
+    B->>B: Marca sesión como "connected"
 ```
 
-El QR tiene un timeout de 30 segundos en el backend (`createConnection`). La página web muestra un countdown de 60 segundos y recarga automáticamente al expirar. Si el usuario escanea después de los 30s, el QR ya no será válido y la página generará uno nuevo al recargar.
+El QR tiene un timeout de 60 segundos en el backend. Si el usuario escanea después del timeout, el QR ya no será válido y se generará uno nuevo.
 
 ### Flujo de Conexión con Código de Emparejamiento (Pairing Code)
 
@@ -38,21 +38,21 @@ Alternativa al QR: el usuario ingresa su número de teléfono y recibe un códig
 
 ```mermaid
 sequenceDiagram
-    participant W as Worker
+    participant B as ChepibeBot
     participant WS as WhatsApp WebSocket
     participant U as Usuario
     participant DB as SQLite
 
-    U->>W: Solicita pairing code (número de teléfono)
-    W->>WS: Crea WebSocket
-    WS-->>W: Genera QR interno
-    W->>WS: Solicita pairing code
-    WS-->>W: Devuelve código de 8 dígitos
-    W->>U: Muestra código
+    U->>B: Solicita pairing code (número de teléfono)
+    B->>WS: Crea WebSocket
+    WS-->>B: Genera QR interno
+    B->>WS: Solicita pairing code
+    WS-->>B: Devuelve código de 8 dígitos
+    B->>U: Muestra código
     U->>WS: Ingresa código en WhatsApp → Linked Devices
-    WS-->>W: Valida y autoriza sesión
-    W->>DB: Persiste creds + Signal Keys
-    W->>W: Marca sesión como "connected"
+    WS-->>B: Valida y autoriza sesión
+    B->>DB: Persiste creds + Signal Keys
+    B->>B: Marca sesión como "connected"
 ```
 
 **Diferencias clave vs QR:**
@@ -60,11 +60,11 @@ sequenceDiagram
 - Útil cuando la cámara no funciona o el QR no carga
 - El código tiene timeout de 60 segundos
 - Requiere número de teléfono como parámetro
-- API: `bot.requestPairingCode(sessionId, phoneNumber)`
+- API: `bot.requestPairingCode(phoneNumber)`
 
 **Formato del número de teléfono:** Debe ser el número completo en formato internacional **sin el signo `+`** (ej. `5491171234567` para Argentina, `14155552671` para EE.UU.). Este valor se configura en la variable de entorno `ALLOWED_PHONE`.
 
-**Límite de dispositivos:** WhatsApp permite hasta 5 dispositivos vinculados por cuenta. Che Pibe Personal usa una sola sesión activa. Si la sesión se destruye (`teardownSession` con `deleteData: true`), el dispositivo se desvincula y se libera un slot.
+**Límite de dispositivos:** WhatsApp permite hasta 5 dispositivos vinculados por cuenta. Che Pibe Personal usa una sola sesión activa. Si la sesión se destruye con `deleteData: true`, el dispositivo se desvincula y se libera un slot.
 
 ### Reconexión Automática
 
@@ -72,8 +72,8 @@ Las credenciales se almacenan en SQLite y permiten reconectar sin escanear QR:
 
 ```mermaid
 flowchart LR
-    A["🔄 Worker reinicia"] --> B["📂 Carga sesiones de DB"]
-    B --> C["🔑 Crea SqliteKeyStore"]
+    A["🔄 Worker reinicia"] --> B["📂 Carga sesión de DB"]
+    B --> C["🔑 Crea SignalKeyStore"]
     C --> D["💾 loadFromDB()"]
     D --> E["🔌 Reconecta WebSocket"]
 
@@ -96,7 +96,7 @@ Baileys usa el Signal Protocol para encriptación E2E. Las keys se almacenan en 
 ```mermaid
 flowchart TB
     A["Baileys WebSocket"] <--> B["makeCacheableSignalKeyStore<br/>(caching wrapper)"]
-    B <--> C["SqliteKeyStore<br/>(inner store)"]
+    B <--> C["SignalKeyStore<br/>(inner store)"]
     C <--> D["SQLite<br/>whatsapp_session_keys"]
 
     style D fill:#e8f4f8,stroke:#333
@@ -146,83 +146,9 @@ WhatsApp migró a LID (Local Identifier) para anonimato en grupos:
 
 Cuando llega un audio de un LID (`@lid`), extraemos el número de teléfono del `participantAlt` o usamos el `phoneNumber` de la sesión del usuario conectado.
 
-## Estructura de Sesión
-
-### Estados de Conexión
-
-```mermaid
-stateDiagram-v2
-    [*] --> PENDING: Crear sesión
-    PENDING --> CONNECTED: QR escaneado
-    CONNECTED --> DISCONNECTED: Usuario cierra / error
-    DISCONNECTED --> CONNECTED: Reconexión automática
-    CONNECTED --> [*]: Desconectar
-
-    state PENDING {
-        [*] --> QR: QR generado
-        QR --> [*]: Timeout 60s
-    }
-
-    state CONNECTED {
-        [*] --> Active: Procesando mensajes
-        Active --> Active: messages.upsert
-    }
-
-    state DISCONNECTED {
-        [*] --> Closed: Sesión cerrada
-        Closed --> [*]: Borrar creds
-    }
-```
-
-| Estado | Descripción |
-|--------|-------------|
-| `pending` | Esperando escaneo de QR |
-| `connected` | Conexión activa, procesando mensajes |
-| `disconnected` | Sesión cerrada manualmente o por error |
-
-**Flujo real:**
-1. Crear sesión → `pending` → QR generado
-2. Usuario escanea → `connected`
-3. Error/desconexión → `disconnected` → reconexión automática (hasta 10 intentos con backoff exponencial)
-4. 401 (logged out) → borrar creds, requiere nuevo QR
-
-### Persistencia
-
-- **Creds** → Tabla `whatsapp_sessions` (columna `creds`, JSON con BufferJSON)
-- **Signal Keys** → Tabla `whatsapp_session_keys` (una fila por key)
-- **Al iniciar** → `restoreSessions()` carga de DB, `SqliteKeyStore.loadFromDB()`, reconecta
-
-### processedHistoryMessages (en creds)
-
-El campo `processedHistoryMessages` dentro de `whatsapp_sessions.creds` es parte del estado de autenticación de Baileys. Se guarda automáticamente por Baileys durante la sincronización de historial y contiene un array de **keys de mensajes** (no contenido):
-
-```json5
-// Estructura de cada entrada
-{
-  key: {
-    remoteJid: "54911...@s.whatsapp.net",  // JID del chat
-    fromMe: false,                           // si lo mandaste vos
-    id: "AC64B8C19EBD9B6FACCB1D0D1BB0664C",  // ID del mensaje (solo reference, NO contenido)
-    participant: "",                         // remitente en grupos
-    addressingMode: "pn"
-  },
-  messageTimestamp: 1776381914
-}
-```
-
-**Qué NO contiene:**
-- ❌ Texto del mensaje
-- ❌ Contenido de audio
-- ❌ Transcripciones
-
-**Por qué existe:**
-- Baileys lo usa internamente para no procesar dos veces el historial sincronizado
-- Se guarda automáticamente, no lo controlamos nosotros
-- No es información útil para auditar
-
 ## Manejo de Mensajes
 
-### Filtros (código real)
+### Filtros
 
 ```typescript
 // 1. Solo notify o requestId (offline). Excepción: mensajes append que contienen audio.
@@ -236,7 +162,7 @@ if (m.type !== 'notify' && !m.requestId) {
 // 2. De nosotros sin audio = skip (es respuesta del bot)
 if (isFromMe && !audioMessage) return;
 
-// 3. Deduplicación: cache 24h con key "${phoneNumber}:${msgId}"
+// 3. Deduplicación: cache 24h con key "${sessionId}:${msgId}"
 if (processedMessages.has(dedupKey)) return;
 
 // 4. Solo audioMessage o pttMessage se procesan
@@ -268,12 +194,9 @@ Message received → not notify/offline → skipping  (status messages, typing, 
 | Code | Nombre | Acción | Borrar Creds? |
 |------|--------|--------|---------------|
 | 401 | LOGGED_OUT | Requiere nuevo QR | SÍ |
-| 402 | SESSION_EXPIRED | Esperar y reintentar | NO |
-| 403 | TEMPORARY_BAN | Bloquear permanentemente | NO |
-| 408 | TIMED_OUT | Backoff exponencial | NO |
-| 428 | CONNECTION_CLOSED | Reconectar | NO |
+| 405 | METHOD_NOT_ALLOWED | Esperar y reintentar | NO |
+| 440 | CONFLICT | Esperar y reintentar | NO |
 | 515 | RESTART_REQUIRED | Reconectar inmediatamente | NO |
-| 503 | SERVER_ERROR | Backoff exponencial | NO |
 
 ## Errores Conocidos
 
@@ -324,18 +247,18 @@ Causado por serialización incorrecta de Buffers. Solución: usar `BufferJSON.re
 Baileys v7.0.0-rc10, la versión actual de esta librería, aún contiene algunos errores conocidos. Para solucionarlos, `packages/whatsapp-worker/patch-baileys.sh` aplica automáticamente los siguientes cambios sobre la librería en `node_modules` después de ejecutar `pnpm install`.
 
 ### Parche 1: Eliminar `lidDbMigrated` del payload
-**Archivo:** `lib/Utils/validate-connection.js`  
-**Problema:** La propiedad booleana `lidDbMigrated` es agregada por Baileys, pero no es reconocida correctamente por el servidor y puede causar rechazo de autenticación o sincronización.  
+**Archivo:** `lib/Utils/validate-connection.js`
+**Problema:** La propiedad booleana `lidDbMigrated` es agregada por Baileys, pero no es reconocida correctamente por el servidor y puede causar rechazo de autenticación o sincronización.
 **Solución:** Se elimina la línea que asigna `false` a dicha propiedad.
 
 ### Parche 2: Eliminar `await` en `noise.finishInit()`
-**Archivo:** `lib/Socket/socket.js`  
-**Problema:** La función `noise.finishInit()` es síncrona, pero el código la envuelve en `await`. Esto genera una condición de carrera (race condition) que interrumpe el handshake y resulta en desconexiones inmediatas o ciclos de reconexión erráticos.  
+**Archivo:** `lib/Socket/socket.js`
+**Problema:** La función `noise.finishInit()` es síncrona, pero el código la envuelve en `await`. Esto genera una condición de carrera (race condition) que interrumpe el handshake y resulta en desconexiones inmediatas o ciclos de reconexión erráticos.
 **Solución:** Se reemplaza `await noise.finishInit();` por `noise.finishInit();`.
 
 ### Parche 3: Cambiar `Platform.WEB` por `Platform.MACOS`
-**Archivo:** `lib/Utils/validate-connection.js`  
-**Problema:** WhatsApp despreció (deprecated) la identificación `WEB` en favor de `MACOS` o `IOS` para la mayoría de sus flujos de autenticación modernos. Enviar `WEB` puede activar comprobaciones de seguridad y provocar desconexiones espontáneas.  
+**Archivo:** `lib/Utils/validate-connection.js`
+**Problema:** WhatsApp despreció (deprecated) la identificación `WEB` en favor de `MACOS` o `IOS` para la mayoría de sus flujos de autenticación modernos. Enviar `WEB` puede activar comprobaciones de seguridad y provocar desconexiones espontáneas.
 **Solución:** Se reemplaza cualquier referencia a `Platform.WEB` por `Platform.MACOS`.
 
 ### Integración en Docker
@@ -344,7 +267,6 @@ El script se ejecuta automáticamente en el `Dockerfile` del web:
 RUN chmod +x ./packages/whatsapp-worker/patch-baileys.sh && \
     ./packages/whatsapp-worker/patch-baileys.sh
 ```
-
 
 ## Recursos
 

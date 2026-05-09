@@ -12,7 +12,8 @@ import { Mutex } from 'async-mutex';
 import { GroqClient } from './groq-client.js';
 import { AudioHandler } from './audio-handler.js';
 import { WhatsAppSession } from './whatsapp-session.js';
-import {BotOptions, DB_SESSION_STATUS_CONNECTED} from './types.js';
+import { BotOptions } from './types.js';
+import { SessionStatus } from './types.js';
 import type { QRResult } from './types.js';
 import { SESSION_ID_PREFIX } from './types.js';
 
@@ -121,7 +122,7 @@ export class ChepibeBot extends EventEmitter {
       const status = sessionRows[0].status;
       this.logger.info(`Found session with status: ${status}`);
 
-      if (status === DB_SESSION_STATUS_CONNECTED) {
+      if (status === SessionStatus.Connected) {
         this.logger.info('Attempting to restore connected session...');
         await this.session.reconnect();
       } else {
@@ -155,7 +156,7 @@ export class ChepibeBot extends EventEmitter {
       .where(eq(whatsappSessions.id, this.sessionId))
       .limit(1);
 
-    if (sessionRows.length > 0 && sessionRows[0].status === 'connected') {
+    if (sessionRows.length > 0 && sessionRows[0].status === SessionStatus.Connected) {
       this.logger.info('Blocking getQR(): session is connected in DB');
       return {
         alreadyConnected: true,
@@ -164,7 +165,7 @@ export class ChepibeBot extends EventEmitter {
       };
     }
 
-    if (this.session && this.session.getStatus() === 'connected') {
+    if (this.session && this.session.getStatus() === SessionStatus.Connected) {
       return {
         alreadyConnected: true,
         sessionId: this.session.sessionId,
@@ -193,7 +194,7 @@ export class ChepibeBot extends EventEmitter {
     }
 
     return {
-      connected: this.session.getStatus() === 'connected',
+      connected: this.session.getStatus() === SessionStatus.Connected,
       phoneNumber: this.session.getPhoneNumber(),
     };
   }
@@ -213,7 +214,7 @@ export class ChepibeBot extends EventEmitter {
       .where(eq(whatsappSessions.id, this.sessionId))
       .limit(1);
 
-    if (sessionRows.length > 0 && sessionRows[0].status === 'connected') {
+    if (sessionRows.length > 0 && sessionRows[0].status === SessionStatus.Connected) {
       this.logger.error('Blocking requestPairingCode(): session is connected in DB');
       throw new Error('Cannot request pairing code: session is already connected');
     }

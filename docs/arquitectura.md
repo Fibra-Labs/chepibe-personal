@@ -200,7 +200,22 @@ Esto es guardado automáticamente por Baileys y no contiene texto ni contenido d
 
 ## ChepibeBot — Librería Embebida
 
-El `whatsapp-worker` ya no es un proceso separado. Es una librería (`ChepibeBot`) que se ejecuta dentro del proceso SvelteKit.
+El `whatsapp-worker` es una librería (`ChepibeBot`) que se ejecuta dentro del proceso SvelteKit. El código está en archivos planos dentro de `src/` sin separación artificial de `domain/`/`infrastructure/` — es un paquete chico, no necesita esa complejidad.
+
+### Estructura del Paquete
+
+```
+packages/whatsapp-worker/src/
+├── types.ts                    # Tipos, enums, constantes, Result<T,E>
+├── session-state-machine.ts    # Máquina de estados finitos para la sesión
+├── signal-key-store.ts         # SqliteKeyStore (Signal Protocol keys en SQLite)
+├── groq-client.ts              # Cliente HTTP de Groq (Whisper + Llama)
+├── audio-handler.ts            # Procesa audio: transcripción + resumen + envío
+├── whatsapp-session.ts         # WhatsAppSession — una sesión por conexión Baileys
+├── bot.ts                      # ChepibeBot — orchestrator principal + heartbeat
+├── index.ts                    # API pública
+└── main.ts                     # Entry point standalone
+```
 
 ### API Pública
 
@@ -217,9 +232,9 @@ const bot = new ChepibeBot({
 await bot.start();
 
 bot.getStatus();                                  // Estado de conexión
-bot.getQR();                                       // Generar QR (o devolver alreadyConnected)
-bot.requestPairingCode(sessionId, phoneNumber);   // Generar código de emparejamiento de 8 dígitos
-bot.disconnect(id);                              // Desconectar sesión
+bot.getQR();                                      // Generar QR (o devolver alreadyConnected)
+bot.requestPairingCode(phoneNumber);              // Generar código de emparejamiento de 8 dígitos
+bot.disconnect();                                 // Desconectar sesión
 await bot.destroy();                              // Graceful shutdown
 ```
 
@@ -239,20 +254,19 @@ Además del QR, el bot soporta vinculación mediante un código de 8 dígitos. E
 
 **API:**
 ```typescript
-const result = await bot.requestPairingCode(sessionId, phoneNumber);
-// Retorna: { code: string } — código de 8 dígitos para ingresar en WhatsApp
+const result = await bot.requestPairingCode(phoneNumber);
+// Retorna: { code: string, sessionId: string } — código de 8 dígitos para ingresar en WhatsApp
 ```
 
 **Parámetros:**
-- `sessionId` — Identificador único de la sesión (ej. `session_1734567890123`). Se genera automáticamente como `session_${Date.now()}` en el frontend.
 - `phoneNumber` — Número de teléfono en formato internacional **sin el signo `+`** (ej. `5491171234567`). Se toma de la variable de entorno `ALLOWED_PHONE`.
 
 **Flujo:**
 1. El usuario visita `/qr` y cambia al modo "Código de Emparejamiento"
 2. Hace clic en "Generar código" — el formulario hace POST a `+page.server.ts`
-3. El servidor lee `ALLOWED_PHONE` del entorno y llama a `bot.requestPairingCode(sessionId, phoneNumber)`
-4. Internamente, `BaileysConnectionManager`:
-   - Destruye cualquier sesión previa (`teardownSession` con `deleteData: true`)
+3. El servidor lee `ALLOWED_PHONE` del entorno y llama a `bot.requestPairingCode(phoneNumber)`
+4. Internamente, `ChepibeBot`:
+   - Destruye cualquier sesión previa
    - Crea un nuevo WebSocket con Baileys
    - Espera el evento QR (interno, no mostrado al usuario)
    - Llama a `socket.requestPairingCode(phoneNumber)` en el WebSocket
@@ -271,8 +285,8 @@ Las sesiones sobreviven restarts de la app:
 
 1. **Creds** se almacenan en `whatsapp_sessions.creds` (serializados con `BufferJSON.replacer`)
 2. **Signal keys** se almacenan en `whatsapp_session_keys` (una fila por key, serializadas con `BufferJSON.replacer`)
-3. **Al iniciar**, `ChepibeBot.start()` carga sesiones de la DB, crea un `SqliteKeyStore` por sesión, llama `loadFromDB()` para cargar keys del cache, y reconecta automáticamente
-4. **Heartbeat** cada 30s verifica que las sesiones estén activas y reconecta las que se cayeron
+3. **Al iniciar**, `ChepibeBot.start()` carga sesiones de la DB, crea una `WhatsAppSession`, llama `SignalKeyStore.loadFromDB()` para cargar keys, y reconecta automáticamente
+4. **Heartbeat** cada 30s verifica que la sesión esté activa
 
 ## Seguridad en la Arquitectura
 
