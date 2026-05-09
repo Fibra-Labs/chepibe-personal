@@ -28,6 +28,7 @@ import {
   BaileysConnection,
   SessionAction,
   DB_SESSION_STATUS_PENDING,
+  DB_SESSION_STATUS_CONNECTED,
   DB_SESSION_STATUS_DISCONNECTED,
   WHATSAPP_JID_SUFFIX,
   LID_SUFFIX,
@@ -46,8 +47,6 @@ import {
   ERROR_SEND_FAILED,
   ERROR_RECONNECT_FAILED,
 } from '../constants/session.constants';
-
-const DEBUG = process.env.DEBUG === 'true';
 
 export class SessionActor {
   readonly sessionId: string;
@@ -97,40 +96,50 @@ export class SessionActor {
       try {
         const result = await new Promise<Result<{ qrCode: string }, Error>>((resolve) => {
           const timeout = setTimeout(() => {
+            socket.ev.off(BaileysEvent.ConnectionUpdate, updateListener);
             this.abortController?.abort();
             resolve(err(new Error(ERROR_PREFIX_TIMEOUT_QR)));
           }, QR_TIMEOUT_MS);
 
-          socket.ev.process(async (events) => {
+          const updateListener = async (update: any) => {
+            const { connection, qr } = update;
+
             if (this.abortController?.signal.aborted) return;
 
-            if (events[BaileysEvent.ConnectionUpdate]) {
-              const { connection, qr } = events[BaileysEvent.ConnectionUpdate];
-
-              if (qr) {
-                clearTimeout(timeout);
-                this.logger.info({ sessionId: this.sessionId }, 'QR code generated');
-                await saveCredentials();
-                await this.emitEvent(SessionEventName.QrReady, { sessionId: this.sessionId, qrCode: qr });
-                resolve(ok({ qrCode: qr }));
-                this.abortController?.abort();
-              }
-
-              if (connection === BaileysConnection.Open) {
-                clearTimeout(timeout);
-                const openResult = await this.onConnectionOpen(socket, saveCredentials);
-                if (!openResult.ok) {
-                  resolve(openResult as Result<never, Error>);
-                }
-                resolve(ok({ qrCode: '' }));
-                this.abortController?.abort();
-              }
+            if (qr) {
+              clearTimeout(timeout);
+              socket.ev.off(BaileysEvent.ConnectionUpdate, updateListener);
+              this.logger.info({ sessionId: this.sessionId }, 'QR code generated');
+              await saveCredentials();
+              await this.emitEvent(SessionEventName.QrReady, { sessionId: this.sessionId, qrCode: qr });
+              resolve(ok({ qrCode: qr }));
+              return;
             }
-          });
+
+            if (connection === BaileysConnection.Open) {
+              clearTimeout(timeout);
+              socket.ev.off(BaileysEvent.ConnectionUpdate, updateListener);
+              this.abortController?.abort();
+              resolve(ok({ qrCode: '' }));
+              return;
+            }
+
+            if (connection === BaileysConnection.Close) {
+              clearTimeout(timeout);
+              socket.ev.off(BaileysEvent.ConnectionUpdate, updateListener);
+              this.abortController?.abort();
+              resolve(err(new Error('Connection closed during QR')));
+            }
+          };
+
+          socket.ev.on(BaileysEvent.ConnectionUpdate, updateListener);
         });
 
         if (!result.ok) {
-          await this.doTeardown(true, TeardownReason.QrTimeout);
+          const reason = result.error.message.includes('closed')
+            ? TeardownReason.ConnectionClosed
+            : TeardownReason.QrTimeout;
+          await this.doTeardown(true, reason);
         }
         return result;
       } finally {
@@ -157,45 +166,62 @@ export class SessionActor {
       this.abortController = new AbortController();
 
       try {
-        const result = await new Promise<Result<{ code: string }, Error>>((resolve, reject) => {
+        const result = await new Promise<Result<{ code: string }, Error>>((resolve) => {
           const timeout = setTimeout(() => {
+            socket.ev.off(BaileysEvent.ConnectionUpdate, updateListener);
             this.abortController?.abort();
             resolve(err(new Error(ERROR_PREFIX_TIMEOUT_PAIRING)));
           }, PAIRING_TIMEOUT_MS);
 
-          socket.ev.process(async (events) => {
+          const updateListener = async (update: any) => {
+            const { connection, qr } = update;
+
             if (this.abortController?.signal.aborted) return;
 
-            if (events[BaileysEvent.ConnectionUpdate]) {
-              const { connection, qr } = events[BaileysEvent.ConnectionUpdate];
-
-              if (qr) {
-                try {
-                  const code = await socket.requestPairingCode(phoneNumber);
-                  this.logger.info({ sessionId: this.sessionId }, 'Pairing code generated');
-                  clearTimeout(timeout);
-                  await saveCredentials();
-                  resolve(ok({ code }));
-                  this.abortController?.abort();
-                } catch (pairingErr) {
-                  clearTimeout(timeout);
-                  resolve(err(new Error(ERROR_PAIRING_CODE_FAILED)));
-                  this.abortController?.abort();
-                }
-              }
-
-              if (connection === BaileysConnection.Open) {
+            if (qr) {
+              try {
+                const code = await socket.requestPairingCode(phoneNumber);
+                this.logger.info({ sessionId: this.sessionId }, 'Pairing code generated');
                 clearTimeout(timeout);
-                await this.onConnectionOpen(socket, saveCredentials);
-                resolve(ok({ code: '' }));
+                socket.ev.off(BaileysEvent.ConnectionUpdate, updateListener);
+                await saveCredentials();
+                resolve(ok({ code }));
+                return;
+              } catch (pairingErr) {
+                clearTimeout(timeout);
+                socket.ev.off(BaileysEvent.ConnectionUpdate, updateListener);
+                resolve(err(new Error(ERROR_PAIRING_CODE_FAILED)));
                 this.abortController?.abort();
+                return;
               }
             }
-          });
+
+            if (connection === BaileysConnection.Open) {
+              clearTimeout(timeout);
+              socket.ev.off(BaileysEvent.ConnectionUpdate, updateListener);
+              this.abortController?.abort();
+              resolve(ok({ code: '' }));
+              return;
+            }
+
+            if (connection === BaileysConnection.Close) {
+              clearTimeout(timeout);
+              socket.ev.off(BaileysEvent.ConnectionUpdate, updateListener);
+              this.abortController?.abort();
+              resolve(err(new Error('Connection closed during pairing')));
+            }
+          };
+
+          socket.ev.on(BaileysEvent.ConnectionUpdate, updateListener);
         });
 
         if (!result.ok) {
-          await this.doTeardown(true, TeardownReason.PairingTimeout);
+          const reason = result.error.message.includes('closed')
+            ? TeardownReason.ConnectionClosed
+            : result.error.message.includes('pairing')
+              ? TeardownReason.PairingCodeFailed
+              : TeardownReason.PairingTimeout;
+          await this.doTeardown(true, reason);
         }
         return result;
       } finally {
@@ -207,27 +233,44 @@ export class SessionActor {
   async reconnect(): Promise<Result<void, Error>> {
     return this.lock.runExclusive(async () => {
       const state = this.stateMachine.getState();
-      if (state !== SessionState.None && state !== SessionState.Connected && state !== SessionState.Reconnecting) {
+      if (state !== SessionState.None && state !== SessionState.Pending && state !== SessionState.Connected && state !== SessionState.Reconnecting) {
+        this.logger.warn({ state, sessionId: this.sessionId }, 'reconnect() skipped: invalid state');
         return ok(undefined);
       }
 
+      if (state === SessionState.None) {
+        const pendingTrans = this.stateMachine.transition(SessionState.Pending, 'reconnect-init');
+        if (!pendingTrans.ok) {
+          this.logger.error({ state: this.stateMachine.getState(), err: pendingTrans.error, sessionId: this.sessionId }, 'reconnect() failed None→Pending transition');
+          return pendingTrans;
+        }
+      }
+
       const trans = this.stateMachine.transition(SessionState.Reconnecting, `reconnect attempt ${this.reconnectAttempts + 1}`);
-      if (!trans.ok) return trans;
+      if (!trans.ok) {
+        this.logger.error({ state: this.stateMachine.getState(), err: trans.error, sessionId: this.sessionId }, 'reconnect() failed state transition');
+        return trans;
+      }
+
+      if (this.socket) {
+        try {
+          await this.socket.end(undefined);
+        } catch { /* best-effort */
+        }
+        this.socket = null;
+      }
+
+      if (this.keyStore) {
+        try {
+          await this.keyStore.forceFlush();
+        } catch { /* best-effort */
+        }
+        this.keyStore = null;
+      }
 
       try {
         const setup = await this.setupSocketAndSession('Reconnecting with saved credentials');
         if (!setup.ok) return setup;
-
-        const { socket, saveCredentials } = setup.value;
-
-        socket.ev.process(async (events) => {
-          if (events[BaileysEvent.ConnectionUpdate]) {
-            const { connection } = events[BaileysEvent.ConnectionUpdate];
-            if (connection === BaileysConnection.Open) {
-              await this.onConnectionOpen(socket, saveCredentials);
-            }
-          }
-        });
 
         return ok(undefined);
       } catch (e) {
@@ -260,30 +303,47 @@ export class SessionActor {
     });
   }
 
-  private async processEvents(socket: WASocket): Promise<void> {
-    await socket.ev.process(async (events) => {
-      if (events[BaileysEvent.ConnectionUpdate]) {
-        await this.handleConnectionUpdate(events[BaileysEvent.ConnectionUpdate]);
-      }
-      if (events[BaileysEvent.MessagesUpsert]) {
-        for (const msg of events[BaileysEvent.MessagesUpsert].messages) {
+  private setupMessageListener(socket: WASocket): void {
+    socket.ev.on(BaileysEvent.MessagesUpsert, async (m: any) => {
+      this.logger.info({ sessionId: this.sessionId, type: m.type, messageCount: m.messages?.length }, 'Received messages');
+      if (m.messages) {
+        for (const msg of m.messages) {
           await this.handleMessage(msg);
         }
-      }
-      if (events[BaileysEvent.CredsUpdate]) {
-        await this.keyStore?.set({});
       }
     });
   }
 
-  private async handleConnectionUpdate(update: any): Promise<void> {
-    const { connection, lastDisconnect } = update;
+  private async handleConnectionUpdate(update: any, socket?: WASocket, saveCredentials?: () => Promise<void>): Promise<void> {
+    const { connection, lastDisconnect, isNewLogin } = update;
+
+    // Guard against duplicate reconnect scheduling when already handling a reconnect event
+    if (this.stateMachine.getState() === SessionState.Reconnecting && this.reconnectTimeout) {
+      const statusCode = lastDisconnect?.error?.output?.statusCode ?? lastDisconnect?.error?.statusCode;
+      const isDuplicateReconnectTrigger = isNewLogin || statusCode === BaileysDisconnectCode.RestartRequired;
+      if (isDuplicateReconnectTrigger) {
+        this.logger.warn({ sessionId: this.sessionId, isNewLogin, statusCode }, 'Ignoring duplicate reconnect trigger while already reconnecting');
+        return;
+      }
+    }
+
+    if (isNewLogin) {
+      this.reconnectAttempts = 0;
+      const trans = this.stateMachine.transition(SessionState.Reconnecting, 'isNewLogin');
+      if (trans.ok) {
+        await this.scheduleReconnect();
+      }
+      return;
+    }
 
     if (connection === BaileysConnection.Open) {
       this.reconnectAttempts = 0;
       if (this.reconnectTimeout) {
         clearTimeout(this.reconnectTimeout);
         this.reconnectTimeout = null;
+      }
+      if (socket && saveCredentials) {
+        await this.onConnectionOpen(socket, saveCredentials);
       }
     }
 
@@ -301,6 +361,13 @@ export class SessionActor {
       }
 
       if (statusCode === BaileysDisconnectCode.RestartRequired) {
+        this.reconnectAttempts = 0;
+        const trans = this.stateMachine.transition(SessionState.Reconnecting, '515-restart-required');
+        if (!trans.ok) {
+          this.logger.error({ state: this.stateMachine.getState(), err: trans.error, sessionId: this.sessionId }, 'Failed 515 transition to Reconnecting, falling back to teardown');
+          await this.doTeardown(true, TeardownReason.ConnectionClosed);
+          return;
+        }
         await this.emitEvent(SessionEventName.RecoverableDisconnect, {
           sessionId: this.sessionId,
           reason: TeardownReason.ConnectionClosed,
@@ -342,14 +409,25 @@ export class SessionActor {
 
   private async handleMessage(msg: any): Promise<void> {
     const state = this.stateMachine.getState();
-    if (state !== SessionState.Connected) return;
+    if (state !== SessionState.Connected) {
+      this.logger.debug({ sessionId: this.sessionId, state }, 'Ignoring message: not connected');
+      return;
+    }
 
     this.lastActivityAt = new Date();
 
-    if (!msg.message) return;
+    if (!msg.message) {
+      this.logger.debug({ sessionId: this.sessionId }, 'Ignoring message: no message content');
+      return;
+    }
 
     const audioMessage = msg.message.audioMessage || msg.message.pttMessage;
-    if (!audioMessage) return;
+    if (!audioMessage) {
+      this.logger.debug({ sessionId: this.sessionId, messageType: Object.keys(msg.message)[0] }, 'Ignoring message: not audio');
+      return;
+    }
+
+    this.logger.info({ sessionId: this.sessionId, sender: msg.key.remoteJid, fromMe: msg.key.fromMe }, 'Processing audio message');
 
     const msgId = msg.key.id;
     const dedupKey = `${this.sessionId}:${msgId}`;
@@ -358,23 +436,26 @@ export class SessionActor {
     const sender = msg.key.remoteJid;
     const isFromMe = msg.key.fromMe;
 
-    if (isFromMe) {
+    // Skip messages we sent (but allow voice messages we send to ourselves)
+    // Voice messages to self have fromMe=true but are the ones we want to process
+    if (isFromMe && sender !== this.phoneNumber && !sender.endsWith('@lid')) {
+      this.logger.debug({ sessionId: this.sessionId, msgId, sender }, 'Ignoring message: sent by us to someone else');
       this.processedMessages.set(dedupKey, true);
       return;
     }
 
-    const resolvedPhone = await this.resolvePhoneFromJid(sender, msg);
-    if (resolvedPhone !== this.allowedPhone) {
-      this.processedMessages.set(dedupKey, true);
-      return;
-    }
-
+    // Process audio messages
     try {
       const buffer = await downloadMediaMessage(msg, 'buffer', {});
       if (!buffer) {
         this.logger.warn({ sessionId: this.sessionId, msgId }, 'Media download returned empty');
         return;
       }
+
+      // Resolve sender's phone number and get pushName (display name)
+      const resolvedSenderPhone = await this.resolvePhoneFromJid(sender, msg);
+      const pushName = msg.pushName || null;
+
       await this.audioHandler.handleAudioMessage(
         this.socket!,
         sender,
@@ -383,6 +464,8 @@ export class SessionActor {
         msgId,
         audioMessage.seconds,
         this.phoneNumber ?? this.allowedPhone,
+        resolvedSenderPhone,
+        pushName,
       );
       this.processedMessages.set(dedupKey, true);
     } catch (e) {
@@ -424,11 +507,20 @@ export class SessionActor {
     const keys = makeCacheableSignalKeyStore(keyStore, this.logger);
     const authState: AuthenticationState = { creds, keys };
 
+    // Use silent logger for Baileys to prevent leaking message content in logs
     const socket = makeWASocket({
       version: version.version,
-      logger: this.logger,
+      logger: this.logger.child({ baileys: true, level: 'silent' }),
       printQRInTerminal: false,
       auth: authState,
+    });
+
+    socket.ev.on(BaileysEvent.CredsUpdate, () => { void saveCredentials(); });
+
+    socket.ev.on(BaileysEvent.ConnectionUpdate, (update) => {
+      this.handleConnectionUpdate(update, socket, saveCredentials).catch((e) =>
+        this.logger.error({ err: e, sessionId: this.sessionId }, 'Error in global connection update handler'),
+      );
     });
 
     this.socket = socket;
@@ -480,14 +572,17 @@ export class SessionActor {
 
     await saveCredentials();
 
+    await this.db
+      .update(whatsappSessions)
+      .set({ status: DB_SESSION_STATUS_CONNECTED, phoneNumber: this.phoneNumber, updatedAt: sql`(unixepoch())` })
+      .where(eq(whatsappSessions.id, this.sessionId));
+
     await this.emitEvent(SessionEventName.Connected, {
       sessionId: this.sessionId,
       phoneNumber: this.phoneNumber,
     });
 
-    this.processEvents(socket).catch((e) =>
-      this.logger.error({ err: e, sessionId: this.sessionId }, 'processEvents crashed'),
-    );
+    this.setupMessageListener(socket);
 
     return ok(undefined);
   }
@@ -518,6 +613,7 @@ export class SessionActor {
     }
 
     if (deleteData) {
+      console.log('delete data');
       await this.db.delete(whatsappSessionKeys).where(eq(whatsappSessionKeys.sessionId, this.sessionId));
       await this.db.delete(whatsappSessions).where(eq(whatsappSessions.id, this.sessionId));
     } else {

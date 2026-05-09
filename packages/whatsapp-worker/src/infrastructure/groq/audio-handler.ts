@@ -21,68 +21,55 @@ export class AudioHandler {
         mimetype: string,
         messageId: string,
         duration?: number,
-        senderPhoneNumber?: string,
-        ownerJid?: string,
+        ownerPhoneNumber?: string,
+        senderPhoneNumber?: string | null,
+        pushName?: string | null,
         isGroup = false,
     ): Promise<void> {
-        this.logger.info({messageId, duration, senderPhoneNumber}, 'Processing voice message');
+        this.logger.info({messageId, duration, senderJid, ownerPhoneNumber, senderPhoneNumber, pushName}, 'Processing voice message');
 
-        const cleanOwnerJid = ownerJid ? stripDeviceSuffix(ownerJid) : stripDeviceSuffix(senderJid);
+        // ALWAYS send the transcription to the owner's phone number
+        const ownerJidToUse = `${ownerPhoneNumber}@s.whatsapp.net`;
         const cleanSenderJid = stripDeviceSuffix(senderJid);
-        const isFromOtherChat = cleanSenderJid !== cleanOwnerJid;
+
+        // Only consider it "from self" if the resolved phone matches the owner
+        // LIDs and null phone numbers will show sender info
+        const isFromSelf = senderPhoneNumber === ownerPhoneNumber;
 
         try {
-            await socket.sendPresenceUpdate('composing', cleanOwnerJid);
-
             const result = await this.groqClient.processAudioMessage(audioBuffer, mimetype);
 
             let reply: string;
 
+            // Show sender info: prefer phone number, then pushName (display name), then JID/LID
+            const senderLabel = senderPhoneNumber || pushName || cleanSenderJid;
+
             if (!result.transcription?.trim()) {
-                if (isGroup) {
-                    reply = senderPhoneNumber
-                        ? `👥 Mensaje de grupo (de ${senderPhoneNumber}):\n\n⚠️ No se pudo transcribir el audio.`
-                        : `👥 Mensaje de un grupo:\n\n⚠️ No se pudo transcribir el audio.`;
-                } else if (isFromOtherChat && senderPhoneNumber) {
-                    reply = `📱 Mensaje de ${senderPhoneNumber}:\n\n⚠️ No se pudo transcribir el audio.`;
-                } else {
-                    reply = '⚠️ No se pudo transcribir el audio.';
-                }
+                reply = isFromSelf
+                    ? '⚠️ No se pudo transcribir el audio.'
+                    : `📱 Audio de ${senderLabel}:\n\n⚠️ No se pudo transcribir el audio.`;
             } else if (!result.summary?.trim()) {
-                if (isGroup) {
-                    reply = senderPhoneNumber
-                        ? `👥 Mensaje de grupo (de ${senderPhoneNumber}):\n\n🎤 *Transcripción:*\n${result.transcription}`
-                        : `👥 Mensaje de un grupo:\n\n🎤 *Transcripción:*\n${result.transcription}`;
-                } else if (isFromOtherChat && senderPhoneNumber) {
-                    reply = `📱 Mensaje de ${senderPhoneNumber}:\n\n🎤 *Transcripción:*\n${result.transcription}`;
-                } else {
-                    reply = `🎤 *Transcripción:*\n${result.transcription}`;
-                }
+                reply = isFromSelf
+                    ? `🎤 *Transcripción:*\n${result.transcription}`
+                    : `📱 Audio de ${senderLabel}:\n\n🎤 *Transcripción:*\n${result.transcription}`;
             } else {
-                if (isGroup) {
-                    reply = senderPhoneNumber
-                        ? `👥 Mensaje de grupo (de ${senderPhoneNumber}):\n\n🎤 *Transcripción:*\n${result.transcription}\n\n📝 *Resumen:*\n${result.summary}`
-                        : `👥 Mensaje de un grupo:\n\n🎤 *Transcripción:*\n${result.transcription}\n\n📝 *Resumen:*\n${result.summary}`;
-                } else if (isFromOtherChat && senderPhoneNumber) {
-                    reply = `📱 Mensaje de ${senderPhoneNumber}:\n\n🎤 *Transcripción:*\n${result.transcription}\n\n📝 *Resumen:*\n${result.summary}`;
-                } else {
-                    reply = `🎤 *Transcripción:*\n${result.transcription}\n\n📝 *Resumen:*\n${result.summary}`;
-                }
+                reply = isFromSelf
+                    ? `🎤 *Transcripción:*\n${result.transcription}\n\n📝 *Resumen:*\n${result.summary}`
+                    : `📱 Audio de ${senderLabel}:\n\n🎤 *Transcripción:*\n${result.transcription}\n\n📝 *Resumen:*\n${result.summary}`;
             }
 
-            await socket.sendMessage(cleanOwnerJid, {text: reply});
+            // ALWAYS send to owner's phone number
+            await socket.sendMessage(ownerJidToUse, {text: reply});
 
             this.logger.info({
                 messageId,
                 duration,
-                recipientJid: cleanOwnerJid,
-                fromOther: isFromOtherChat
-            }, 'Voice message processed and replied to owner');
+                recipientJid: ownerJidToUse,
+                senderJid: cleanSenderJid
+            }, 'Voice message processed and sent to owner');
         } catch (err) {
             this.logger.error({err, messageId}, 'Failed to process voice message');
             throw new AudioProcessingError('Failed to process audio', { cause: err });
-        } finally {
-            await socket.sendPresenceUpdate('paused', cleanOwnerJid);
         }
     }
 }
