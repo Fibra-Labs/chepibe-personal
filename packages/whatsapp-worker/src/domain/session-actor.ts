@@ -22,41 +22,32 @@ import { SessionEventName, type SessionEvent, type SessionEventName as TSessionE
 import { BaileysDisconnectCode, TeardownReason } from '../types/disconnect-reason';
 import { SqliteKeyStore } from '../infrastructure/whatsapp/signal-key-store';
 import type { AudioHandler } from '../infrastructure/groq/audio-handler';
+import {
+  SessionState,
+  BaileysEvent,
+  BaileysConnection,
+  SessionAction,
+  DB_SESSION_STATUS_PENDING,
+  DB_SESSION_STATUS_DISCONNECTED,
+  WHATSAPP_JID_SUFFIX,
+  LID_SUFFIX,
+  DEDUP_TTL_SECONDS,
+  RESPONSIVE_THRESHOLD_MS,
+  MAX_RECONNECT_ATTEMPTS,
+  RECONNECT_BASE_DELAY_MS,
+  RECONNECT_MAX_DELAY_MS,
+  QR_TIMEOUT_MS,
+  PAIRING_TIMEOUT_MS,
+  ERROR_PREFIX_TIMEOUT_QR,
+  ERROR_PREFIX_TIMEOUT_PAIRING,
+  ERROR_PAIRING_CODE_FAILED,
+  ERROR_PHONE_MISMATCH,
+  ERROR_NO_SOCKET,
+  ERROR_SEND_FAILED,
+  ERROR_RECONNECT_FAILED,
+} from '../constants/session.constants';
 
-const MAX_RECONNECT_ATTEMPTS = 10;
-const RECONNECT_BASE_DELAY_MS = 2000;
-const RECONNECT_MAX_DELAY_MS = 60000;
-const QR_TIMEOUT_MS = 60000;
-const PAIRING_TIMEOUT_MS = 60000;
 const DEBUG = process.env.DEBUG === 'true';
-const DEDUP_TTL_SECONDS = 86400;
-const RESPONSIVE_THRESHOLD_MS = 60000;
-
-enum SessionState {
-  None = 'none',
-  Pending = 'pending',
-  Connected = 'connected',
-  Destroyed = 'destroyed',
-  Reconnecting = 'reconnecting',
-}
-
-enum BaileysEvent {
-  ConnectionUpdate = 'connection.update',
-  MessagesUpsert = 'messages.upsert',
-  CredsUpdate = 'creds.update',
-}
-
-enum BaileysConnection {
-  Open = 'open',
-  Close = 'close',
-}
-
-enum SessionAction {
-  StartQr = 'startQR',
-  StartPairing = 'startPairing',
-  ConnectionOpen = 'connection.open',
-  Shutdown = 'shutdown',
-}
 
 export class SessionActor {
   readonly sessionId: string;
@@ -89,11 +80,11 @@ export class SessionActor {
   async startQR(): Promise<Result<{ qrCode: string }, Error>> {
     return this.lock.runExclusive(async () => {
       const state = this.stateMachine.getState();
-      if (state !== 'none' && state !== 'destroyed') {
+      if (state !== SessionState.None && state !== SessionState.Destroyed) {
         return err(new Error(`Cannot startQR from state ${state}`));
       }
 
-      const trans = this.stateMachine.transition('pending', 'startQR');
+      const trans = this.stateMachine.transition(SessionState.Pending, SessionAction.StartQr);
       if (!trans.ok) return trans as Result<never, Error>;
 
       const setup = await this.setupSocketAndSession('Creating Baileys socket for QR');
@@ -107,14 +98,14 @@ export class SessionActor {
         const result = await new Promise<Result<{ qrCode: string }, Error>>((resolve) => {
           const timeout = setTimeout(() => {
             this.abortController?.abort();
-            resolve(err(new Error('Timeout waiting for QR code')));
+            resolve(err(new Error(ERROR_PREFIX_TIMEOUT_QR)));
           }, QR_TIMEOUT_MS);
 
           socket.ev.process(async (events) => {
             if (this.abortController?.signal.aborted) return;
 
-            if (events['connection.update']) {
-              const { connection, qr } = events['connection.update'];
+            if (events[BaileysEvent.ConnectionUpdate]) {
+              const { connection, qr } = events[BaileysEvent.ConnectionUpdate];
 
               if (qr) {
                 clearTimeout(timeout);
@@ -125,7 +116,7 @@ export class SessionActor {
                 this.abortController?.abort();
               }
 
-              if (connection === 'open') {
+              if (connection === BaileysConnection.Open) {
                 clearTimeout(timeout);
                 const openResult = await this.onConnectionOpen(socket, saveCredentials);
                 if (!openResult.ok) {
@@ -151,11 +142,11 @@ export class SessionActor {
   async startPairing(phoneNumber: string): Promise<Result<{ code: string }, Error>> {
     return this.lock.runExclusive(async () => {
       const state = this.stateMachine.getState();
-      if (state !== 'none' && state !== 'destroyed') {
+      if (state !== SessionState.None && state !== SessionState.Destroyed) {
         return err(new Error(`Cannot startPairing from state ${state}`));
       }
 
-      const trans = this.stateMachine.transition('pending', 'startPairing');
+      const trans = this.stateMachine.transition(SessionState.Pending, SessionAction.StartPairing);
       if (!trans.ok) return trans as Result<never, Error>;
 
       const setup = await this.setupSocketAndSession('Creating Baileys socket for pairing code');
@@ -169,14 +160,14 @@ export class SessionActor {
         const result = await new Promise<Result<{ code: string }, Error>>((resolve, reject) => {
           const timeout = setTimeout(() => {
             this.abortController?.abort();
-            resolve(err(new Error('Timeout waiting for pairing code')));
+            resolve(err(new Error(ERROR_PREFIX_TIMEOUT_PAIRING)));
           }, PAIRING_TIMEOUT_MS);
 
           socket.ev.process(async (events) => {
             if (this.abortController?.signal.aborted) return;
 
-            if (events['connection.update']) {
-              const { connection, qr } = events['connection.update'];
+            if (events[BaileysEvent.ConnectionUpdate]) {
+              const { connection, qr } = events[BaileysEvent.ConnectionUpdate];
 
               if (qr) {
                 try {
@@ -188,12 +179,12 @@ export class SessionActor {
                   this.abortController?.abort();
                 } catch (pairingErr) {
                   clearTimeout(timeout);
-                  resolve(err(new Error('Failed to request pairing code')));
+                  resolve(err(new Error(ERROR_PAIRING_CODE_FAILED)));
                   this.abortController?.abort();
                 }
               }
 
-              if (connection === 'open') {
+              if (connection === BaileysConnection.Open) {
                 clearTimeout(timeout);
                 await this.onConnectionOpen(socket, saveCredentials);
                 resolve(ok({ code: '' }));
@@ -216,11 +207,11 @@ export class SessionActor {
   async reconnect(): Promise<Result<void, Error>> {
     return this.lock.runExclusive(async () => {
       const state = this.stateMachine.getState();
-      if (state !== 'none' && state !== 'connected' && state !== 'reconnecting') {
+      if (state !== SessionState.None && state !== SessionState.Connected && state !== SessionState.Reconnecting) {
         return ok(undefined);
       }
 
-      const trans = this.stateMachine.transition('reconnecting', `reconnect attempt ${this.reconnectAttempts + 1}`);
+      const trans = this.stateMachine.transition(SessionState.Reconnecting, `reconnect attempt ${this.reconnectAttempts + 1}`);
       if (!trans.ok) return trans;
 
       try {
@@ -230,9 +221,9 @@ export class SessionActor {
         const { socket, saveCredentials } = setup.value;
 
         socket.ev.process(async (events) => {
-          if (events['connection.update']) {
-            const { connection } = events['connection.update'];
-            if (connection === 'open') {
+          if (events[BaileysEvent.ConnectionUpdate]) {
+            const { connection } = events[BaileysEvent.ConnectionUpdate];
+            if (connection === BaileysConnection.Open) {
               await this.onConnectionOpen(socket, saveCredentials);
             }
           }
@@ -240,7 +231,7 @@ export class SessionActor {
 
         return ok(undefined);
       } catch (e) {
-        return err(new Error('Reconnect failed', { cause: e }));
+        return err(new Error(ERROR_RECONNECT_FAILED, { cause: e }));
       }
     });
   }
@@ -259,27 +250,27 @@ export class SessionActor {
 
   async sendMessage(jid: string, content: any): Promise<Result<void, Error>> {
     return this.lock.runExclusive(async () => {
-      if (!this.socket) return err(new Error('No socket'));
+      if (!this.socket) return err(new Error(ERROR_NO_SOCKET));
       try {
         await this.socket.sendMessage(jid, content);
         return ok(undefined);
       } catch (e) {
-        return err(new Error('Send failed', { cause: e }));
+        return err(new Error(ERROR_SEND_FAILED, { cause: e }));
       }
     });
   }
 
   private async processEvents(socket: WASocket): Promise<void> {
     await socket.ev.process(async (events) => {
-      if (events['connection.update']) {
-        await this.handleConnectionUpdate(events['connection.update']);
+      if (events[BaileysEvent.ConnectionUpdate]) {
+        await this.handleConnectionUpdate(events[BaileysEvent.ConnectionUpdate]);
       }
-      if (events['messages.upsert']) {
-        for (const msg of events['messages.upsert'].messages) {
+      if (events[BaileysEvent.MessagesUpsert]) {
+        for (const msg of events[BaileysEvent.MessagesUpsert].messages) {
           await this.handleMessage(msg);
         }
       }
-      if (events['creds.update']) {
+      if (events[BaileysEvent.CredsUpdate]) {
         await this.keyStore?.set({});
       }
     });
@@ -288,7 +279,7 @@ export class SessionActor {
   private async handleConnectionUpdate(update: any): Promise<void> {
     const { connection, lastDisconnect } = update;
 
-    if (connection === 'open') {
+    if (connection === BaileysConnection.Open) {
       this.reconnectAttempts = 0;
       if (this.reconnectTimeout) {
         clearTimeout(this.reconnectTimeout);
@@ -296,7 +287,7 @@ export class SessionActor {
       }
     }
 
-    if (connection === 'close') {
+    if (connection === BaileysConnection.Close) {
       const statusCode = lastDisconnect?.error?.output?.statusCode ?? lastDisconnect?.error?.statusCode;
 
       if (statusCode === BaileysDisconnectCode.LoggedOut) {
@@ -351,7 +342,7 @@ export class SessionActor {
 
   private async handleMessage(msg: any): Promise<void> {
     const state = this.stateMachine.getState();
-    if (state !== 'connected') return;
+    if (state !== SessionState.Connected) return;
 
     this.lastActivityAt = new Date();
 
@@ -401,10 +392,10 @@ export class SessionActor {
   }
 
   private async resolvePhoneFromJid(jid: string, msg: any): Promise<string | null> {
-    if (jid.endsWith('@s.whatsapp.net')) {
+    if (jid.endsWith(WHATSAPP_JID_SUFFIX)) {
       return jid.split('@')[0];
     }
-    if (jid.endsWith('@lid')) {
+    if (jid.endsWith(LID_SUFFIX)) {
       const cached = this.lidToPhoneCache.get(jid);
       if (cached) return cached;
       const phone = await this.resolveLidToPhone(jid);
@@ -459,7 +450,7 @@ export class SessionActor {
     const saveCredentials = async () => {
       await this.db
         .insert(whatsappSessions)
-        .values({ id: this.sessionId, status: 'pending', creds: JSON.stringify(creds, BufferJSON.replacer) })
+        .values({ id: this.sessionId, status: DB_SESSION_STATUS_PENDING, creds: JSON.stringify(creds, BufferJSON.replacer) })
         .onConflictDoUpdate({
           target: whatsappSessions.id,
           set: { creds: JSON.stringify(creds, BufferJSON.replacer), updatedAt: sql`(unixepoch())` },
@@ -474,18 +465,18 @@ export class SessionActor {
 
     const phoneFromSocket = socket.user?.id?.split(':')[0].replace(/\D/g, '');
     if (phoneFromSocket && phoneFromSocket !== this.allowedPhone) {
-      this.logger.fatal({ sessionId: this.sessionId, connectedPhone: phoneFromSocket, allowedPhone: this.allowedPhone }, 'Phone number mismatch');
+      this.logger.fatal({ sessionId: this.sessionId, connectedPhone: phoneFromSocket, allowedPhone: this.allowedPhone }, ERROR_PHONE_MISMATCH);
       await this.emitEvent(SessionEventName.PermanentDisconnect, {
         sessionId: this.sessionId,
         reason: TeardownReason.PhoneMismatch,
-        statusCode: 401,
+        statusCode: BaileysDisconnectCode.LoggedOut,
       });
       await this.doTeardown(true, TeardownReason.PhoneMismatch);
-      return err(new Error('Phone number mismatch'));
+      return err(new Error(ERROR_PHONE_MISMATCH));
     }
 
     this.phoneNumber = phoneFromSocket ?? this.allowedPhone;
-    const trans = this.stateMachine.transition('connected', 'connection.open');
+    const trans = this.stateMachine.transition(SessionState.Connected, SessionAction.ConnectionOpen);
     if (!trans.ok) return trans;
 
     await saveCredentials();
@@ -531,14 +522,14 @@ export class SessionActor {
     } else {
       await this.db
         .update(whatsappSessions)
-        .set({ status: 'disconnected' as any })
+        .set({ status: DB_SESSION_STATUS_DISCONNECTED as any })
         .where(eq(whatsappSessions.id, this.sessionId));
     }
 
     this.processedMessages.flushAll();
     this.lidToPhoneCache.clear();
 
-    const trans = this.stateMachine.transition('destroyed', reason);
+    const trans = this.stateMachine.transition(SessionState.Destroyed, reason);
     if (!trans.ok) return trans;
 
     await this.emitEvent(SessionEventName.Disconnected, { sessionId: this.sessionId, reason });
