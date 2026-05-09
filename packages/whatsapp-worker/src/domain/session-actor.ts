@@ -29,6 +29,34 @@ const RECONNECT_MAX_DELAY_MS = 60000;
 const QR_TIMEOUT_MS = 60000;
 const PAIRING_TIMEOUT_MS = 60000;
 const DEBUG = process.env.DEBUG === 'true';
+const DEDUP_TTL_SECONDS = 86400;
+const RESPONSIVE_THRESHOLD_MS = 60000;
+
+enum SessionState {
+  None = 'none',
+  Pending = 'pending',
+  Connected = 'connected',
+  Destroyed = 'destroyed',
+  Reconnecting = 'reconnecting',
+}
+
+enum BaileysEvent {
+  ConnectionUpdate = 'connection.update',
+  MessagesUpsert = 'messages.upsert',
+  CredsUpdate = 'creds.update',
+}
+
+enum BaileysConnection {
+  Open = 'open',
+  Close = 'close',
+}
+
+enum SessionAction {
+  StartQr = 'startQR',
+  StartPairing = 'startPairing',
+  ConnectionOpen = 'connection.open',
+  Shutdown = 'shutdown',
+}
 
 export class SessionActor {
   readonly sessionId: string;
@@ -39,7 +67,7 @@ export class SessionActor {
   private keyStore: SqliteKeyStore | null = null;
   private reconnectAttempts = 0;
   private reconnectTimeout: NodeJS.Timeout | null = null;
-  private processedMessages = new NodeCache({ stdTTL: 86400, useClones: false });
+  private processedMessages = new NodeCache({ stdTTL: DEDUP_TTL_SECONDS, useClones: false });
   private readonly lidToPhoneCache = new Map<string, string>();
   private abortController: AbortController | null = null;
   private lastActivityAt = new Date();
@@ -537,6 +565,6 @@ export class SessionActor {
 
   isResponsive(): boolean {
     const diff = Date.now() - this.lastActivityAt.getTime();
-    return diff < 60000;
+    return diff < RESPONSIVE_THRESHOLD_MS;
   }
 }
