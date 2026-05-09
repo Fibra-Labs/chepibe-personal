@@ -387,7 +387,6 @@ export class SessionActor {
       this.processedMessages.set(dedupKey, true);
     } catch (e) {
       this.logger.error({ err: e, sessionId: this.sessionId, msgId }, 'Failed to process audio message');
-      throw e;
     }
   }
 
@@ -486,7 +485,9 @@ export class SessionActor {
       phoneNumber: this.phoneNumber,
     });
 
-    void this.processEvents(socket);
+    this.processEvents(socket).catch((e) =>
+      this.logger.error({ err: e, sessionId: this.sessionId }, 'processEvents crashed'),
+    );
 
     return ok(undefined);
   }

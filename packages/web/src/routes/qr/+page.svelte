@@ -77,12 +77,13 @@
 		formError = null;
 		pairingCode = null;
 		polling = false;
+		remaining = QR_EXPIRE_SECONDS;
 
-		const url = newMode === 'qr' ? '/qr' : '/qr?mode=pairing';
-		await goto(url, { replaceState: true });
-		switching = false;
-		mode = newMode;
-		polling = true;
+		const suffix = `_=${Date.now()}`;
+		const url = newMode === 'qr'
+			? `/qr?${suffix}`
+			: `/qr?${suffix}&mode=pairing`;
+		window.location.href = url;
 	}
 </script>
 
@@ -117,14 +118,14 @@
 		</div>
 	{:else}
 		<!-- Mode Toggle -->
-		<div class="mb-8 inline-flex rounded-lg p-1" style="background: var(--surface-hover);">
+		<div class="mb-8 inline-flex rounded-lg p-1" style="background: var(--surface-hover); cursor: pointer;">
 			<button
 				onclick={() => handleModeSwitch('qr')}
 				class="rounded-md px-4 py-2 text-sm font-medium transition-colors"
 				class:active={mode === 'qr'}
-				style={mode === 'qr'
-					? 'background: var(--surface); color: var(--foreground); box-shadow: 0 1px 3px rgba(0,0,0,0.1);'
-					: 'color: var(--foreground-muted);'
+			style={mode === 'qr'
+					? 'background: var(--surface); color: var(--foreground); box-shadow: 0 1px 3px rgba(0,0,0,0.1); cursor: pointer;'
+					: 'color: var(--foreground-muted); cursor: pointer;'
 				}
 			>
 				Código QR
@@ -133,9 +134,9 @@
 				onclick={() => handleModeSwitch('pairing')}
 				class="rounded-md px-4 py-2 text-sm font-medium transition-colors"
 				class:active={mode === 'pairing'}
-				style={mode === 'pairing'
-					? 'background: var(--surface); color: var(--foreground); box-shadow: 0 1px 3px rgba(0,0,0,0.1);'
-					: 'color: var(--foreground-muted);'
+			style={mode === 'pairing'
+					? 'background: var(--surface); color: var(--foreground); box-shadow: 0 1px 3px rgba(0,0,0,0.1); cursor: pointer;'
+					: 'color: var(--foreground-muted); cursor: pointer;'
 				}
 			>
 				Código de Emparejamiento
