@@ -505,7 +505,7 @@ export class SessionActor {
     if (this.socket) {
       try {
         await this.socket.end(undefined);
-      } catch {
+      } catch { /* best-effort teardown */
       }
       this.socket = null;
     }
@@ -522,15 +522,15 @@ export class SessionActor {
     } else {
       await this.db
         .update(whatsappSessions)
-        .set({ status: DB_SESSION_STATUS_DISCONNECTED as any })
+        .set({ status: DB_SESSION_STATUS_DISCONNECTED })
         .where(eq(whatsappSessions.id, this.sessionId));
     }
 
     this.processedMessages.flushAll();
     this.lidToPhoneCache.clear();
 
-    const trans = this.stateMachine.transition(SessionState.Destroyed, reason);
-    if (!trans.ok) return trans;
+    const transitionResult = this.stateMachine.transition(SessionState.Destroyed, reason);
+    if (!transitionResult.ok) return transitionResult;
 
     await this.emitEvent(SessionEventName.Disconnected, { sessionId: this.sessionId, reason });
 

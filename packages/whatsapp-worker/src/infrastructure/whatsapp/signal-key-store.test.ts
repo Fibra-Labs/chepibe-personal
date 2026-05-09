@@ -57,8 +57,9 @@ describe('SqliteKeyStore', () => {
 		});
 
 		it('flushes pending mutations on destroy', async () => {
+			const testKey = { public: Buffer.from('pub'), private: Buffer.from('priv') };
 			await store.set({
-				'pre-key': { key1: Buffer.from('test') },
+				'pre-key': { key1: testKey },
 			});
 
 			await store.destroy();
@@ -83,8 +84,9 @@ describe('SqliteKeyStore', () => {
 
 	describe('forceFlush() before destroy()', () => {
 		it('forceFlush + destroy does not double-flush', async () => {
+			const testKey = { public: Buffer.from('pub'), private: Buffer.from('priv') };
 			await store.set({
-				'pre-key': { key1: Buffer.from('test') },
+				'pre-key': { key1: testKey },
 			});
 
 			await store.forceFlush();
@@ -106,8 +108,9 @@ describe('SqliteKeyStore', () => {
 
 	describe('set() and get() round-trip', () => {
 		it('stores and retrieves keys', async () => {
+			const testKey = { public: Buffer.from('pub1'), private: Buffer.from('priv1') };
 			await store.set({
-				'pre-key': { key1: Buffer.from('hello') },
+				'pre-key': { key1: testKey },
 			});
 			await store.forceFlush();
 
@@ -116,8 +119,9 @@ describe('SqliteKeyStore', () => {
 		});
 
 		it('retrieves keys from DB after flush', async () => {
+			const testKey = { public: Buffer.from('pub2'), private: Buffer.from('priv2') };
 			await store.set({
-				'pre-key': { key2: Buffer.from('world') },
+				'pre-key': { key2: testKey },
 			});
 			await store.forceFlush();
 

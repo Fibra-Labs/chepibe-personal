@@ -13,31 +13,38 @@
 	let submitting = $state(false);
 	let formError = $state<string | null>(null);
 	let pairingCode = $state<string | null>(null);
-	
+	let switching = $state(false);
+
 	$effect(() => {
-		if (!polling) return;
-		
+		if (data.qr) {
+			remaining = QR_EXPIRE_SECONDS;
+		}
+	});
+
+	$effect(() => {
+		if (!polling || !data.qr) return;
+
 		const countdown = setInterval(() => {
 			remaining -= 1;
-			
+
 			if (remaining <= 0) {
 				clearInterval(countdown);
 				window.location.reload();
 				return;
 			}
 		}, 1000);
-		
+
 		return () => clearInterval(countdown);
 	});
 
 	$effect(() => {
 		if (connected) return;
-		
+
 		const poll = setInterval(async () => {
 			try {
 				const response = await fetch('/api/status');
 				const status = await response.json();
-				
+
 				if (status.connected) {
 					connected = true;
 					clearInterval(poll);
@@ -47,7 +54,7 @@
 				// ignore polling errors
 			}
 		}, 2000);
-		
+
 		return () => clearInterval(poll);
 	});
 
@@ -63,11 +70,19 @@
 		}
 	});
 
-	function handleModeSwitch(newMode: 'qr' | 'pairing') {
+	async function handleModeSwitch(newMode: 'qr' | 'pairing') {
+		if (newMode === mode) return;
+		switching = true;
 		mode = newMode;
 		formError = null;
 		pairingCode = null;
-		remaining = QR_EXPIRE_SECONDS;
+		polling = false;
+
+		const url = newMode === 'qr' ? '/qr' : '/qr?mode=pairing';
+		await goto(url, { replaceState: true });
+		switching = false;
+		mode = newMode;
+		polling = true;
 	}
 </script>
 

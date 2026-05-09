@@ -21,7 +21,6 @@ export enum SessionAction {
   StartQr = 'startQR',
   StartPairing = 'startPairing',
   ConnectionOpen = 'connection.open',
-  Shutdown = 'shutdown',
 }
 
 export const DB_SESSION_STATUS_PENDING = 'pending' as const;

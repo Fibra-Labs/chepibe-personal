@@ -14,6 +14,7 @@ import { SessionActor } from '../domain/session-actor.js';
 import type { BaileysSession } from '../types/baileys-session.js';
 import type { ChepibeBotOptions } from './chepibe-bot-options.js';
 import type { QRResult } from './qr-result.js';
+import { SessionState } from '../constants/session.constants.js';
 
 export class ChepibeBot extends EventEmitter {
 	private readonly options: ChepibeBotOptions;
@@ -125,7 +126,7 @@ export class ChepibeBot extends EventEmitter {
 		}
 
 		const actors = this.socketManager.getActors();
-		const existingConnected = actors.find(a => a.getStatus() === 'connected');
+		const existingConnected = actors.find(a => a.getStatus() === SessionState.Connected);
 
 		if (existingConnected) {
 			return {
@@ -157,8 +158,8 @@ export class ChepibeBot extends EventEmitter {
 		}
 
 		const actors = this.socketManager.getActors();
-		const connected = actors.some(a => a.getStatus() === 'connected');
-		const primarySession = actors.find(a => a.getStatus() === 'connected');
+		const connected = actors.some(a => a.getStatus() === SessionState.Connected);
+		const primarySession = actors.find(a => a.getStatus() === SessionState.Connected);
 
 		return {
 			connected,
