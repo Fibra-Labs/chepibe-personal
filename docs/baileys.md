@@ -148,26 +148,99 @@ Cuando llega un audio de un LID (`@lid`), extraemos el número de teléfono del 
 
 ## Manejo de Mensajes
 
+### Estructura de Mensajes
+
+Baileys expone mensajes a través del evento `messages.upsert`:
+
+```typescript
+socket.ev.on('messages.upsert', async (m) => {
+  // m.type: 'notify', 'append', etc.
+  // m.messages: array de mensajes
+});
+```
+
+**Campos importantes del mensaje:**
+- `msg.key.remoteJid` - Chat JID (puede ser grupo `@g.us` o DM `@s.whatsapp.net`)
+- `msg.key.participant` - Sender JID dentro de un grupo (solo en grupos)
+- `msg.key.fromMe` - `true` si el mensaje lo enviamos nosotros
+- `msg.pushName` - Display name del remitente (cuando disponible)
+- `msg.message.audioMessage` / `msg.message.pttMessage` - Datos del audio
+
+### Grupos vs DMs
+
+**Identificación:**
+```typescript
+const chatJid = msg.key.remoteJid;
+const isGroup = chatJid.endsWith('@g.us');
+```
+
+**Extracción del sender:**
+```typescript
+// Para grupos: el sender real está en msg.key.participant
+// Para DMs: el sender es msg.key.remoteJid
+const senderJid = isGroup ? (msg.key.participant || chatJid) : chatJid;
+```
+
+**Metadata de grupos:**
+```typescript
+if (isGroup) {
+  const groupMetadata = await socket.groupMetadata(chatJid);
+  const groupName = groupMetadata.subject;  // Nombre del grupo
+  const participants = groupMetadata.participants;  // Array de miembros
+}
+```
+
+### Resolución de Identidad del Sender
+
+Baileys puede proporcionar el sender en diferentes formatos dependiendo del contexto:
+
+1. **Phone Number JID** (`5491112345678@s.whatsapp.net`):
+   - Formato tradicional
+   - Fácil de extraer: `jid.split('@')[0]`
+
+2. **LID** (`27713...@lid`):
+   - Formato anónimo usado en grupos (Baileys v7+)
+   - No se puede resolver directamente a número de teléfono vía protocolo
+   - Puede aparecer en `msg.key.participant` en grupos
+
+3. **pushName** (`msg.pushName`):
+   - Display name del usuario (ej: "John Doe")
+   - Disponible cuando WhatsApp lo envía
+   - Más legible que LID pero no siempre presente
+
+**Estrategia de fallback para mostrar sender:**
+```typescript
+const senderLabel = senderPhoneNumber || pushName || cleanSenderJid;
+```
+
+**Por qué no podemos obtener números limpios siempre:**
+- WhatsApp Web/App oficial tiene acceso a APIs del servidor backend
+- Baileys solo implementa el protocolo cliente (reverse-engineered)
+- LIDs no mapean a números sin cooperación del servidor
+- `pushName` es lo más cercano a un identificador legible cuando el número no está disponible
+
 ### Filtros
 
 ```typescript
-// 1. Solo notify o requestId (offline). Excepción: mensajes append que contienen audio.
-if (m.type !== 'notify' && !m.requestId) {
-    const hasAudio = m.messages?.some(msg =>
-        msg.message?.audioMessage || msg.message?.pttMessage
-    );
-    if (!hasAudio) return;
-}
+// 1. Solo procesar mensajes conectados
+if (state !== 'connected') return;
 
-// 2. De nosotros sin audio = skip (es respuesta del bot)
-if (isFromMe && !audioMessage) return;
+// 2. Ignorar mensajes sin contenido
+if (!msg.message) return;
 
-// 3. Deduplicación: cache 24h con key "${sessionId}:${msgId}"
+// 3. Solo audioMessage o pttMessage se procesan
+const audioMessage = msg.message.audioMessage || msg.message.pttMessage;
+if (!audioMessage) return;
+
+// 4. Deduplicación: cache 24h con key "${sessionId}:${msgId}"
+const dedupKey = `${sessionId}:${msgId}`;
 if (processedMessages.has(dedupKey)) return;
 
-// 4. Solo audioMessage o pttMessage se procesan
-const audioMessage = message.message.audioMessage || message.message.pttMessage;
-if (!audioMessage) return;
+// 5. Ignorar mensajes que enviamos a otros (pero permitir self-messages)
+const isFromMe = msg.key.fromMe;
+if (isFromMe && senderJid !== ourPhoneNumber && !senderJid.endsWith('@lid')) {
+  return; // Mensaje enviado por nosotros a alguien más
+}
 ```
 
 ### Logs
@@ -182,12 +255,32 @@ Message received → from self → not audio → skipping (likely bot reply)
 Message received → not notify/offline → skipping  (status messages, typing, etc.)
 ```
 
+### Descarga de Media
+
+```typescript
+import { downloadMediaMessage } from '@whiskeysockets/baileys';
+
+const buffer = await downloadMediaMessage(msg, 'buffer', {});
+// buffer contiene el audio en formato original (ogg, m4a, etc.)
+```
+
+**Importante:** El `mimetype` del audio está en `audioMessage.mimetype` y debe pasarse al procesador (ej: Groq API).
+
 ### Respuesta
 
 **Siempre se envía al usuario conectado** (su propio chat), nunca al remitente:
 
-- Audio propio → Respuesta directa al chat del usuario
-- Audio de otro → Respuesta al chat del usuario con "📱 Mensaje de {número}:"
+```typescript
+const ownerJid = `${ownerPhoneNumber}@s.whatsapp.net`;
+await socket.sendMessage(ownerJid, { text: reply });
+```
+
+**Formato de respuesta:**
+- **Audio propio (no grupo):** Transcripción y resumen sin prefijo
+- **Audio de otro (DM):** `📱 Audio de {sender}:` + transcripción + resumen
+- **Audio de grupo:** `👥 *{GroupName}* - {sender}:` + transcripción + resumen
+
+Esto permite que todas las transcripciones lleguen centralizadas al chat del dueño, sin importar de dónde vino el audio original.
 
 ## Códigos de Desconexión
 
