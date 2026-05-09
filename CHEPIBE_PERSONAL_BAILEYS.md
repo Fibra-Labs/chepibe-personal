@@ -2,7 +2,9 @@
 
 ## Context
 
-`chepibe-personal` is the **primary WhatsApp worker** for personal bots. It is imported as `@chepibe-personal/whatsapp-worker` from `chepibe-personal-landing`.
+`chepibe-personal` is the **primary WhatsApp worker** for personal bots.
+
+It is published as `@chepibe-personal/whatsapp-worker` and can be consumed by any application that needs a lightweight, self-hosted WhatsApp bot.
 
 **Current architecture**: Single-process. No Redis PubSub. No `core-api` split. The `BaileysConnectionManager` is an 897-line god class inside the worker package.
 
