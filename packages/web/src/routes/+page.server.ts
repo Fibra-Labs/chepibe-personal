@@ -18,7 +18,6 @@ export const load = async () => {
 		return {
 			connected: data.connected ?? false,
 			phoneNumber: data.phoneNumber ?? null,
-			sessionId: data.sessions?.find((s: { status: string }) => s.status === 'connected')?.sessionId ?? data.sessions?.[0]?.sessionId ?? null,
 			allowedPhone: config.allowedPhone
 		};
 	} catch (err) {
@@ -26,23 +25,18 @@ export const load = async () => {
 		return {
 			connected: false,
 			phoneNumber: null,
-			sessionId: null,
 			allowedPhone: config.allowedPhone
 		};
 	}
 };
 
 export const actions: Actions = {
-	default: async ({ request }) => {
-		const data = await request.formData();
-		const sessionId = data.get('sessionId')?.toString();
+	default: async () => {
 		try {
 			const bot = await awaitBot();
-		if (sessionId) {
-			await bot.disconnect(sessionId);
-		}
+			await bot.disconnect();
 		} catch (err) {
-			logger.error({ err, sessionId }, 'Disconnect action failed');
+			logger.error({ err }, 'Disconnect action failed');
 		}
 		return { success: true };
 	}

@@ -6,25 +6,29 @@ import { fileURLToPath } from 'node:url';
 import pino from 'pino';
 import type { Logger } from 'pino';
 import type { Client } from '@libsql/client';
-import { createDb, runMigrations, whatsappSessions } from '@chepibe-personal/shared';
+import { createDb, runMigrations, whatsappSessions, whatsappSessionKeys } from '@chepibe-personal/shared';
+import { eq, sql } from 'drizzle-orm';
 import { GroqClient } from '../infrastructure/groq/groq-client.js';
 import { AudioHandler } from '../infrastructure/groq/audio-handler.js';
-import { SocketManager } from '../infrastructure/whatsapp/socket-manager.js';
+import { SingleSessionManager } from '../infrastructure/whatsapp/single-session-manager.js';
 import { SessionActor } from '../domain/session-actor.js';
-import type { BaileysSession } from '../types/baileys-session.js';
 import type { ChepibeBotOptions } from './chepibe-bot-options.js';
 import type { QRResult } from './qr-result.js';
 import { SessionState } from '../constants/session.constants.js';
 
+const SESSION_ID_PREFIX = 'session_';
+
 export class ChepibeBot extends EventEmitter {
 	private readonly options: ChepibeBotOptions;
 	private readonly logger: Logger;
-	private socketManager: SocketManager | null = null;
+	private readonly sessionId: string;
+	private sessionManager: SingleSessionManager | null = null;
 	private dbClient: Client | null = null;
 
 	constructor(options: ChepibeBotOptions) {
 		super();
 		this.options = options;
+		this.sessionId = `${SESSION_ID_PREFIX}${options.allowedPhone}`;
 		this.logger = options.logger ?? pino({
 			transport: {
 				target: 'pino-pretty',
@@ -87,7 +91,7 @@ export class ChepibeBot extends EventEmitter {
 			this.logger,
 		);
 		const audioHandler = new AudioHandler(groqClient, this.logger);
-		this.socketManager = new SocketManager(
+		this.sessionManager = new SingleSessionManager(
 			(sessionId) => new SessionActor(
 				sessionId,
 				db,
@@ -102,42 +106,82 @@ export class ChepibeBot extends EventEmitter {
 			this.logger,
 		);
 
-		this.logger.info('Restoring sessions from database...');
-		const sessionRows = await db.select().from(whatsappSessions);
-		for (const row of sessionRows) {
-			if (row.creds) {
-				const result = await this.socketManager.createSession(row.id);
+		this.logger.info('Cleaning up ghost sessions from database...');
+		const ghostRows = await db.delete(whatsappSessions)
+			.where(sql`${whatsappSessions.id} != ${this.sessionId}`)
+			.returning({ id: whatsappSessions.id });
+		if (ghostRows.length > 0) {
+			this.logger.info(`Deleted ${ghostRows.length} ghost session(s): ${ghostRows.map((r: { id: string }) => r.id).join(', ')}`);
+			await db.delete(whatsappSessionKeys).where(sql`${whatsappSessionKeys.sessionId} != ${this.sessionId}`);
+		}
+
+		this.logger.info('Checking for existing session in database...');
+		const sessionRows = await db.select().from(whatsappSessions)
+			.where(eq(whatsappSessions.id, this.sessionId))
+			.limit(1);
+
+		if (sessionRows.length > 0 && sessionRows[0].creds) {
+			const status = sessionRows[0].status;
+			this.logger.info(`Found session with status: ${status}`);
+
+			if (status === 'connected') {
+				this.logger.info('Attempting to restore connected session...');
+				const result = this.sessionManager.getOrCreateSession(this.sessionId);
 				if (result.ok) {
 					await result.value.reconnect();
 				}
+			} else {
+				this.logger.info(`Session status is '${status}' (not connected), deleting stale session data and starting fresh...`);
+				await db.delete(whatsappSessionKeys).where(eq(whatsappSessionKeys.sessionId, this.sessionId));
+				await db.delete(whatsappSessions).where(eq(whatsappSessions.id, this.sessionId));
 			}
 		}
-		this.socketManager.startHeartbeat(30000);
 
-		const sessions = this.socketManager.getActors();
+		this.sessionManager.startHeartbeat(30000);
+
+		const actor = this.sessionManager.getSession();
 		this.logger.info(
-			`${sessions.length} session(s) restored: ${sessions.map(s => `${s.sessionId} (${s.getStatus()}${s.getPhoneNumber() ? ` ${s.getPhoneNumber()}` : ''})`).join(', ') || 'none'}`,
+			actor
+				? `Session active: ${actor.sessionId} (${actor.getStatus()}${actor.getPhoneNumber() ? ` ${actor.getPhoneNumber()}` : ''})`
+				: 'No active session',
 		);
 	}
 
-	async getQR(sessionId?: string): Promise<QRResult> {
-		if (!this.socketManager) {
+	async getQR(): Promise<QRResult> {
+		if (!this.sessionManager) {
 			throw new Error('Bot not started. Call start() first.');
 		}
 
-		const actors = this.socketManager.getActors();
-		const existingConnected = actors.find(a => a.getStatus() === SessionState.Connected);
+		const { db } = await createDb({
+			url: this.options.databaseUrl,
+			authToken: this.options.databasePassword
+		});
 
-		if (existingConnected) {
+		const sessionRows = await db.select()
+			.from(whatsappSessions)
+			.where(eq(whatsappSessions.id, this.sessionId))
+			.limit(1);
+
+		if (sessionRows.length > 0 && sessionRows[0].status === 'connected') {
+			this.logger.info('Blocking getQR(): session is connected in DB');
 			return {
 				alreadyConnected: true,
-				sessionId: existingConnected.sessionId,
-				phoneNumber: existingConnected.getPhoneNumber() ?? undefined,
+				sessionId: this.sessionId,
+				phoneNumber: sessionRows[0].phoneNumber ?? undefined,
 			};
 		}
 
-		const id = sessionId || `session_${Date.now()}`;
-		const createResult = await this.socketManager.createSession(id);
+		const actor = this.sessionManager.getSession();
+		if (actor && actor.getStatus() === SessionState.Connected) {
+			return {
+				alreadyConnected: true,
+				sessionId: actor.sessionId,
+				phoneNumber: actor.getPhoneNumber() ?? undefined,
+			};
+		}
+
+		await this.sessionManager.destroySession();
+		const createResult = this.sessionManager.getOrCreateSession(this.sessionId);
 		if (!createResult.ok) {
 			throw new Error(`Failed to create session: ${createResult.error.message}`);
 		}
@@ -145,55 +189,47 @@ export class ChepibeBot extends EventEmitter {
 		if (!qrResult.ok) {
 			throw qrResult.error;
 		}
-		return { qrCode: qrResult.value.qrCode, sessionId: id, alreadyConnected: false };
+		return { qrCode: qrResult.value.qrCode, sessionId: this.sessionId, alreadyConnected: false };
 	}
 
-	getStatus(): {
-		connected: boolean;
-		phoneNumber: string | null;
-		sessions: Array<{ sessionId: string; status: string; phoneNumber?: string; createdAt: Date }>;
-	} {
-		if (!this.socketManager) {
+	getStatus(): { connected: boolean; phoneNumber: string | null } {
+		if (!this.sessionManager) {
 			throw new Error('Bot not started. Call start() first.');
 		}
 
-		const actors = this.socketManager.getActors();
-		const connected = actors.some(a => a.getStatus() === SessionState.Connected);
-		const primarySession = actors.find(a => a.getStatus() === SessionState.Connected);
+		const actor = this.sessionManager.getSession();
+		if (!actor) {
+			return { connected: false, phoneNumber: null };
+		}
 
 		return {
-			connected,
-			phoneNumber: primarySession?.getPhoneNumber() ?? null,
-			sessions: actors.map(a => ({
-				sessionId: a.sessionId,
-				status: a.getStatus(),
-				phoneNumber: a.getPhoneNumber() ?? undefined,
-				createdAt: new Date(),
-			})),
+			connected: actor.getStatus() === SessionState.Connected,
+			phoneNumber: actor.getPhoneNumber(),
 		};
 	}
 
-	getSessions(): BaileysSession[] {
-		if (!this.socketManager) {
-			throw new Error('Bot not started. Call start() first.');
-		}
-		return this.socketManager.getActors().map(a => ({
-			sessionId: a.sessionId,
-			socket: undefined as any,
-			status: a.getStatus(),
-			phoneNumber: a.getPhoneNumber() ?? undefined,
-			createdAt: new Date(),
-			lastActivityAt: new Date(),
-		}));
-	}
-
-	async requestPairingCode(sessionId: string, phoneNumber: string): Promise<{ code: string; sessionId: string }> {
-		if (!this.socketManager) {
+	async requestPairingCode(phoneNumber: string): Promise<{ code: string; sessionId: string }> {
+		if (!this.sessionManager) {
 			throw new Error('Bot not started. Call start() first.');
 		}
 
-		const id = sessionId || `session_${Date.now()}`;
-		const createResult = await this.socketManager.createSession(id);
+		const { db } = await createDb({
+			url: this.options.databaseUrl,
+			authToken: this.options.databasePassword
+		});
+
+		const sessionRows = await db.select()
+			.from(whatsappSessions)
+			.where(eq(whatsappSessions.id, this.sessionId))
+			.limit(1);
+
+		if (sessionRows.length > 0 && sessionRows[0].status === 'connected') {
+			this.logger.error('Blocking requestPairingCode(): session is connected in DB');
+			throw new Error('Cannot request pairing code: session is already connected');
+		}
+
+		await this.sessionManager.destroySession();
+		const createResult = this.sessionManager.getOrCreateSession(this.sessionId);
 		if (!createResult.ok) {
 			throw new Error(`Failed to create session: ${createResult.error.message}`);
 		}
@@ -202,23 +238,23 @@ export class ChepibeBot extends EventEmitter {
 		if (!pairingResult.ok) {
 			throw pairingResult.error;
 		}
-		return { code: pairingResult.value.code, sessionId: id };
+		return { code: pairingResult.value.code, sessionId: this.sessionId };
 	}
 
-	async disconnect(sessionId: string): Promise<void> {
-		if (!this.socketManager) {
+	async disconnect(): Promise<void> {
+		if (!this.sessionManager) {
 			throw new Error('Bot not started. Call start() first.');
 		}
-		const result = await this.socketManager.destroySession(sessionId);
+		const result = await this.sessionManager.destroySession();
 		if (!result.ok) {
 			throw result.error;
 		}
 	}
 
 	async destroy(): Promise<void> {
-		if (this.socketManager) {
-			await this.socketManager.destroy();
-			this.socketManager = null;
+		if (this.sessionManager) {
+			await this.sessionManager.destroy();
+			this.sessionManager = null;
 		}
 
 		if (this.dbClient) {

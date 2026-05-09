@@ -24,6 +24,7 @@ export enum SessionAction {
 }
 
 export const DB_SESSION_STATUS_PENDING = 'pending' as const;
+export const DB_SESSION_STATUS_CONNECTED = 'connected' as const;
 export const DB_SESSION_STATUS_DISCONNECTED = 'disconnected' as const;
 
 export const WHATSAPP_JID_SUFFIX = '@s.whatsapp.net' as const;

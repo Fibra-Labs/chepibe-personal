@@ -67,10 +67,9 @@ bot.on('DISCONNECTED', ({ sessionId, reason }) => {
 async function main() {
 	await bot.start();
 
-	const shutdown = async () => {
+	const shutdown = () => {
 		logger.info('Shutting down...');
-		await bot.destroy();
-		process.exit(0);
+		bot.destroy().finally(() => process.exit(0));
 	};
 
 	process.on('SIGINT', shutdown);

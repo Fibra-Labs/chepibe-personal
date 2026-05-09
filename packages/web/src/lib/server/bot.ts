@@ -52,21 +52,21 @@ function startBot(): Promise<void> {
 	return globalThis.__chepibeStartPromise;
 }
 
-function cleanupBot(): void {
+async function cleanupBot(): Promise<void> {
 	if (!globalThis.__chepibeBot) return;
 	logger.info('Cleaning up ChepibeBot');
-	globalThis.__chepibeBot.destroy().catch((err) => logger.error({ err }, 'Failed to clean up ChepibeBot'));
+	await globalThis.__chepibeBot.destroy().catch((err) => logger.error({ err }, 'Failed to clean up ChepibeBot'));
 	globalThis.__chepibeBot = undefined;
 	globalThis.__chepibeStartPromise = undefined;
 }
 
-process.on('SIGINT', () => {
-	cleanupBot();
+process.on('SIGINT', async () => {
+	void cleanupBot();
 	process.exit(0);
 });
 
-process.on('SIGTERM', () => {
-	cleanupBot();
+process.on('SIGTERM', async () => {
+	void cleanupBot();
 	process.exit(0);
 });
 
