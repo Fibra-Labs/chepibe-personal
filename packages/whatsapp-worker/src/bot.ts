@@ -6,23 +6,23 @@ import { fileURLToPath } from 'node:url';
 import pino from 'pino';
 import type { Logger } from 'pino';
 import type { Client } from '@libsql/client';
-import { createDb, runMigrations, whatsappSessions, whatsappSessionKeys } from '@chepibe-personal/shared';
+import { createDb, runMigrations, whatsappSessions, whatsappSessionKeys, type Db } from '@chepibe-personal/shared';
 import { eq, sql } from 'drizzle-orm';
 import { Mutex } from 'async-mutex';
 import { GroqClient } from './groq-client.js';
 import { AudioHandler } from './audio-handler.js';
 import { WhatsAppSession } from './whatsapp-session.js';
-import { BotOptions } from './types.js';
-import { SessionStatus } from './types.js';
-import type { QRResult } from './types.js';
-import { SESSION_ID_PREFIX } from './types.js';
+import type { BotOptions, QRResult } from './types.js';
+import { SessionStatus, SESSION_ID_PREFIX } from './types.js';
 
 export class ChepibeBot extends EventEmitter {
   private readonly options: BotOptions;
   private readonly logger: Logger;
   private readonly sessionId: string;
   private session: WhatsAppSession | null = null;
-  private dbClient: Client | null = null;
+  private db: Db | null = null;
+  private client: Client | null = null;
+  private audioHandler: AudioHandler | null = null;
   private readonly lock = new Mutex();
   private heartbeatTimer: NodeJS.Timeout | null = null;
 
@@ -51,7 +51,8 @@ export class ChepibeBot extends EventEmitter {
     }
 
     const { db, client } = await createDb({ url: databaseUrl, authToken: databasePassword });
-    this.dbClient = client;
+    this.db = db;
+    this.client = client;
 
     this.logger.info('Running database migrations...');
     let migrationsPath = this.options.migrationsPath;
@@ -86,28 +87,18 @@ export class ChepibeBot extends EventEmitter {
     this.logger.info('Database migrations completed');
 
     const groqClient = new GroqClient(
-      this.options.groqApiKey,
-      this.options.groqWhisperModel,
-      this.options.groqLlmModel,
-      this.logger,
+        this.options.groqApiKey,
+        this.options.groqWhisperModel,
+        this.options.groqLlmModel,
+        this.logger,
     );
-    const audioHandler = new AudioHandler(groqClient, this.logger);
-    this.session = new WhatsAppSession(
-      this.sessionId,
-      db,
-      client,
-      audioHandler,
-      this.logger,
-      this.options.allowedPhone,
-      (event) => {
-        this.emit(event.type, event.payload);
-      },
-    );
+    this.audioHandler = new AudioHandler(groqClient, this.logger);
+    this.session = this.createSession();
 
     this.logger.info('Cleaning up ghost sessions from database...');
     const ghostRows = await db.delete(whatsappSessions)
-      .where(sql`${whatsappSessions.id} != ${this.sessionId}`)
-      .returning({ id: whatsappSessions.id });
+        .where(sql`${whatsappSessions.id} != ${this.sessionId}`)
+        .returning({ id: whatsappSessions.id });
     if (ghostRows.length > 0) {
       this.logger.info(`Deleted ${ghostRows.length} ghost session(s): ${ghostRows.map((r: { id: string }) => r.id).join(', ')}`);
       await db.delete(whatsappSessionKeys).where(sql`${whatsappSessionKeys.sessionId} != ${this.sessionId}`);
@@ -115,8 +106,8 @@ export class ChepibeBot extends EventEmitter {
 
     this.logger.info('Checking for existing session in database...');
     const sessionRows = await db.select().from(whatsappSessions)
-      .where(eq(whatsappSessions.id, this.sessionId))
-      .limit(1);
+        .where(eq(whatsappSessions.id, this.sessionId))
+        .limit(1);
 
     if (sessionRows.length > 0 && sessionRows[0].creds) {
       const status = sessionRows[0].status;
@@ -135,26 +126,19 @@ export class ChepibeBot extends EventEmitter {
     this.startHeartbeat(30000);
 
     this.logger.info(
-      this.session
-        ? `Session active: ${this.session.sessionId} (${this.session.getStatus()}${this.session.getPhoneNumber() ? ` ${this.session.getPhoneNumber()}` : ''})`
-        : 'No active session',
+        `Session active: ${this.session.sessionId} (${this.session.getStatus()}${this.session.getPhoneNumber() ? ` ${this.session.getPhoneNumber()}` : ''})`,
     );
   }
 
   async getQR(): Promise<QRResult> {
-    if (!this.session) {
+    if (!this.session || !this.db) {
       throw new Error('Bot not started. Call start() first.');
     }
 
-    const { db } = await createDb({
-      url: this.options.databaseUrl,
-      authToken: this.options.databasePassword,
-    });
-
-    const sessionRows = await db.select()
-      .from(whatsappSessions)
-      .where(eq(whatsappSessions.id, this.sessionId))
-      .limit(1);
+    const sessionRows = await this.db.select()
+        .from(whatsappSessions)
+        .where(eq(whatsappSessions.id, this.sessionId))
+        .limit(1);
 
     if (sessionRows.length > 0 && sessionRows[0].status === SessionStatus.Connected) {
       this.logger.info('Blocking getQR(): session is connected in DB');
@@ -165,7 +149,7 @@ export class ChepibeBot extends EventEmitter {
       };
     }
 
-    if (this.session && this.session.getStatus() === SessionStatus.Connected) {
+    if (this.session.getStatus() === SessionStatus.Connected) {
       return {
         alreadyConnected: true,
         sessionId: this.session.sessionId,
@@ -173,10 +157,7 @@ export class ChepibeBot extends EventEmitter {
       };
     }
 
-    await this.destroySession();
-    if (!this.session) {
-      throw new Error('Session destroyed but not recreated');
-    }
+    await this.destroyAndRecreateSession();
     const qrResult = await this.session.startQR();
     if (!qrResult.ok) {
       throw qrResult.error;
@@ -189,10 +170,6 @@ export class ChepibeBot extends EventEmitter {
       throw new Error('Bot not started. Call start() first.');
     }
 
-    if (!this.session) {
-      return { connected: false, phoneNumber: null };
-    }
-
     return {
       connected: this.session.getStatus() === SessionStatus.Connected,
       phoneNumber: this.session.getPhoneNumber(),
@@ -200,30 +177,21 @@ export class ChepibeBot extends EventEmitter {
   }
 
   async requestPairingCode(phoneNumber: string): Promise<{ code: string; sessionId: string }> {
-    if (!this.session) {
+    if (!this.session || !this.db) {
       throw new Error('Bot not started. Call start() first.');
     }
 
-    const { db } = await createDb({
-      url: this.options.databaseUrl,
-      authToken: this.options.databasePassword,
-    });
-
-    const sessionRows = await db.select()
-      .from(whatsappSessions)
-      .where(eq(whatsappSessions.id, this.sessionId))
-      .limit(1);
+    const sessionRows = await this.db.select()
+        .from(whatsappSessions)
+        .where(eq(whatsappSessions.id, this.sessionId))
+        .limit(1);
 
     if (sessionRows.length > 0 && sessionRows[0].status === SessionStatus.Connected) {
       this.logger.error('Blocking requestPairingCode(): session is connected in DB');
       throw new Error('Cannot request pairing code: session is already connected');
     }
 
-    await this.destroySession();
-    if (!this.session) {
-      throw new Error('Session destroyed but not recreated');
-    }
-
+    await this.destroyAndRecreateSession();
     const pairingResult = await this.session.startPairing(phoneNumber);
     if (!pairingResult.ok) {
       throw pairingResult.error;
@@ -235,10 +203,7 @@ export class ChepibeBot extends EventEmitter {
     if (!this.session) {
       throw new Error('Bot not started. Call start() first.');
     }
-    const result = await this.session.destroy();
-    if (!result.ok) {
-      throw result.error;
-    }
+    await this.destroyAndRecreateSession();
   }
 
   async destroy(): Promise<void> {
@@ -249,22 +214,40 @@ export class ChepibeBot extends EventEmitter {
       this.session = null;
     }
 
-    if (this.dbClient) {
+    if (this.client) {
       try {
-        this.dbClient.close();
+        this.client.close();
       } catch (err) {
         this.logger.error({ err }, 'Error closing database client');
       } finally {
-        this.dbClient = null;
+        this.client = null;
       }
     }
   }
 
-  private async destroySession(): Promise<void> {
+  private createSession(): WhatsAppSession {
+    if (!this.db || !this.client || !this.audioHandler) {
+      throw new Error('Cannot create session: bot not initialized');
+    }
+    return new WhatsAppSession(
+        this.sessionId,
+        this.db,
+        this.client,
+        this.audioHandler,
+        this.logger,
+        this.options.allowedPhone,
+        (event) => {
+          this.emit(event.type, event.payload);
+        },
+    );
+  }
+
+  private async destroyAndRecreateSession(): Promise<void> {
     return this.lock.runExclusive(async () => {
-      if (!this.session) return;
-      await this.session.destroy();
-      this.session = null;
+      if (this.session) {
+        await this.session.destroy();
+      }
+      this.session = this.createSession();
     });
   }
 
@@ -273,8 +256,8 @@ export class ChepibeBot extends EventEmitter {
     this.heartbeatTimer = setInterval(() => {
       if (this.session) {
         this.logger.info(
-          { sessionId: this.session.sessionId, status: this.session.getStatus(), phoneNumber: this.session.getPhoneNumber() },
-          `Heartbeat: 1 session active`,
+            { sessionId: this.session.sessionId, status: this.session.getStatus(), phoneNumber: this.session.getPhoneNumber() },
+            `Heartbeat: 1 session active`,
         );
       } else {
         this.logger.info([], `Heartbeat: 0 sessions active`);

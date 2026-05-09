@@ -30,10 +30,6 @@
 					   class="nav-link text-sm {$page.url.pathname === '/' ? 'active' : ''}">
 						Panel
 					</a>
-					<a href="/qr" 
-					   class="nav-link text-sm {$page.url.pathname === '/qr' ? 'active' : ''}">
-						QR
-					</a>
 				</div>
 			</div>
 		</div>
