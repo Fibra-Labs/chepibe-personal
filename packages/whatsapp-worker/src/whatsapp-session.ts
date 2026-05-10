@@ -213,7 +213,7 @@ export class WhatsAppSession {
   async reconnect(): Promise<Result<void, Error>> {
     return this.lock.runExclusive(async () => {
       const state = this.stateMachine.getState();
-      if (state !== SessionStatus.None && state !== SessionStatus.Pending && state !== SessionStatus.Connected && state !== SessionStatus.Reconnecting) {
+      if (state !== SessionStatus.None && state !== SessionStatus.Pending && state !== SessionStatus.Connected && state !== SessionStatus.Reconnecting && state !== SessionStatus.Suspended) {
         this.logger.warn({ state, sessionId: this.sessionId }, 'reconnect() skipped: invalid state');
         return ok(undefined);
       }
@@ -599,14 +599,14 @@ export class WhatsAppSession {
     } else {
       await this.db
         .update(whatsappSessions)
-        .set({ status: SessionStatus.Destroyed })
+        .set({ status: SessionStatus.Suspended })
         .where(eq(whatsappSessions.id, this.sessionId));
     }
 
     this.processedMessages.flushAll();
     this.lidToPhoneCache.clear();
 
-    const transitionResult = this.stateMachine.transition(SessionStatus.Destroyed, reason);
+    const transitionResult = this.stateMachine.transition(SessionStatus.Suspended, reason);
     if (!transitionResult.ok) return transitionResult;
 
     await this.emitEvent(EventName.Disconnected, { sessionId: this.sessionId, reason });

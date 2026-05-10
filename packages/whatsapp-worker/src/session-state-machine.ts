@@ -13,8 +13,9 @@ type TransitionListener = (from: SessionStatus, to: SessionStatus, context: stri
 const ValidTransitions: Record<SessionStatus, SessionStatus[]> = {
   [SessionStatus.None]: [SessionStatus.Pending],
   [SessionStatus.Pending]: [SessionStatus.Connected, SessionStatus.Reconnecting, SessionStatus.Destroyed],
-  [SessionStatus.Connected]: [SessionStatus.Reconnecting, SessionStatus.Destroyed],
-  [SessionStatus.Reconnecting]: [SessionStatus.Connected, SessionStatus.Reconnecting, SessionStatus.Destroyed],
+  [SessionStatus.Connected]: [SessionStatus.Reconnecting, SessionStatus.Suspended, SessionStatus.Destroyed],
+  [SessionStatus.Reconnecting]: [SessionStatus.Connected, SessionStatus.Reconnecting, SessionStatus.Suspended, SessionStatus.Destroyed],
+  [SessionStatus.Suspended]: [SessionStatus.Reconnecting, SessionStatus.Destroyed],
   [SessionStatus.Destroyed]: [],
 };
 

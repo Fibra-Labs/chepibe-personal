@@ -110,17 +110,8 @@ export class ChepibeBot extends EventEmitter {
         .limit(1);
 
     if (sessionRows.length > 0 && sessionRows[0].creds) {
-      const status = sessionRows[0].status;
-      this.logger.info(`Found session with status: ${status}`);
-
-      if (status === SessionStatus.Connected) {
-        this.logger.info('Attempting to restore connected session...');
-        await this.session.reconnect();
-      } else {
-        this.logger.info(`Session status is '${status}' (not connected), deleting stale session data and starting fresh...`);
-        await db.delete(whatsappSessionKeys).where(eq(whatsappSessionKeys.sessionId, this.sessionId));
-        await db.delete(whatsappSessions).where(eq(whatsappSessions.id, this.sessionId));
-      }
+      this.logger.info({ status: sessionRows[0].status }, 'Found existing session credentials, attempting to restore...');
+      await this.session.reconnect();
     }
 
     this.startHeartbeat(30000);
@@ -204,6 +195,15 @@ export class ChepibeBot extends EventEmitter {
       throw new Error('Bot not started. Call start() first.');
     }
     await this.destroyAndRecreateSession();
+  }
+
+  async suspend(): Promise<void> {
+    this.stopHeartbeat();
+
+    if (this.session) {
+      await this.session.stop();
+      this.session = null;
+    }
   }
 
   async destroy(): Promise<void> {

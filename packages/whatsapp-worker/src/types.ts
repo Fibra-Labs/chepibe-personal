@@ -17,6 +17,7 @@ export enum SessionStatus {
   Pending = 'pending',
   Connected = 'connected',
   Reconnecting = 'reconnecting',
+  Suspended = 'suspended',
   Destroyed = 'destroyed',
 }
 
