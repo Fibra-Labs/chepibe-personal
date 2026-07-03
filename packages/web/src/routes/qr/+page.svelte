@@ -3,7 +3,6 @@
 	import { page } from '$app/stores';
 	import { enhance } from '$app/forms';
 	import { onMount } from 'svelte';
-	import { createPairingSSE, type PairingState } from '$lib/pairing';
 
 	const QR_EXPIRE_SECONDS = 60;
 
@@ -16,10 +15,6 @@
 	let formError = $state<string | null>(null);
 	let pairingCode = $state<string | null>(null);
 	let switching = $state(false);
-	let passkeyStep = $state<'idle' | 'verifying' | 'confirming' | 'error'>('idle');
-	let passkeyError = $state<string | null>(null);
-	let confirmationCode = $state<string | null>(null);
-	let sessionId = $state<string | null>(null);
 
 	let remaining = $derived(
 		Math.max(0, QR_EXPIRE_SECONDS - Math.floor((currentTime - qrLoadTime) / 1000))
@@ -75,79 +70,6 @@
 			submitting = false;
 		}
 	});
-
-	$effect(() => {
-		if (connected || $page.data.alreadyConnected) return;
-
-		const cleanup = createPairingSSE((state: PairingState) => {
-			if (state.step === 'connected') {
-				connected = true;
-				goto('/');
-				return;
-			}
-
-			if (state.step === 'waiting_passkey') {
-				passkeyStep = 'verifying';
-				sessionId = state.sessionId ?? null;
-				if (state.publicKey) {
-					void handlePasskeyVerification(state.publicKey, state.sessionId ?? '');
-				}
-				return;
-			}
-
-			if (state.step === 'waiting_confirmation') {
-				passkeyStep = 'confirming';
-				confirmationCode = state.code ?? null;
-				if (state.code && state.skipHandoffUX === false) {
-				}
-				if (state.skipHandoffUX === true) {
-					void handleAutoConfirm(state.sessionId ?? '');
-				}
-				return;
-			}
-
-			if (state.step === 'error') {
-				passkeyStep = 'error';
-				passkeyError = state.error ?? 'Error en verificación';
-				return;
-			}
-		});
-
-		return cleanup;
-	});
-
-	async function handlePasskeyVerification(publicKeyBase64: string, sid: string) {
-		try {
-			const publicKeyJson = JSON.parse(atob(publicKeyBase64));
-			const requestOptions = PublicKeyCredential.parseRequestOptionsFromJSON(publicKeyJson);
-			const credential = await navigator.credentials.get({ publicKey: requestOptions });
-			if (!credential) {
-				passkeyStep = 'error';
-				passkeyError = 'No se obtuvo credential';
-				return;
-			}
-			const response = (credential as PublicKeyCredential).toJSON();
-			await fetch('/api/pairing/submit', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ sessionId: sid, response }),
-			});
-		} catch (e) {
-			passkeyStep = 'error';
-			passkeyError = e instanceof Error ? e.message : 'Error en WebAuthn';
-		}
-	}
-
-	async function handleAutoConfirm(sid: string) {
-		try {
-			await fetch('/api/pairing/confirm', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ sessionId: sid }),
-			});
-		} catch {
-		}
-	}
 
 	async function handleModeSwitch(newMode: 'qr' | 'pairing') {
 		if (newMode === mode) return;
@@ -221,73 +143,8 @@
 				Código de Emparejamiento
 			</button>
 		</div>
-	{:else if passkeyStep === 'verifying'}
-		<div class="text-center">
-			<div class="glass-card animate-fade-up p-8 text-center max-w-md">
-				<div class="mb-4 flex justify-center">
-					<div class="flex h-16 w-16 items-center justify-center rounded-full"
-					     style="background: var(--primary-glow);">
-						<span class="text-3xl">🔐</span>
-					</div>
-				</div>
-				<h1 class="font-display text-2xl font-bold" style="color: var(--foreground);">Verificando en WhatsApp...</h1>
-				<p class="mt-2" style="color: var(--foreground-muted);">
-					Mantén la app abierta en ambos dispositivos
-				</p>
-				<div class="mt-6 flex justify-center">
-					<div class="h-8 w-8 animate-spin rounded-full border-4 border-t-transparent"
-					     style="border-color: var(--primary); border-top-color: transparent;"></div>
-				</div>
-			</div>
-		</div>
-	{:else if passkeyStep === 'confirming'}
-		<div class="text-center">
-			<div class="glass-card animate-fade-up p-8 text-center max-w-md">
-				<div class="mb-4 flex justify-center">
-					<div class="flex h-16 w-16 items-center justify-center rounded-full"
-					     style="background: var(--primary-glow);">
-						<span class="text-3xl">🔑</span>
-					</div>
-				</div>
-				<h1 class="font-display text-2xl font-bold" style="color: var(--foreground);">Confirmación requerida</h1>
-				{#if confirmationCode}
-					<div class="my-6">
-						<span class="text-5xl font-mono font-bold tracking-[0.3em]" style="color: var(--primary-dark);">
-							{confirmationCode}
-						</span>
-					</div>
-				{/if}
-				<p class="mt-4 text-sm" style="color: var(--foreground-muted);">
-					Ingresa este código en WhatsApp cuando te lo pida
-				</p>
-				<div class="mt-6 flex justify-center">
-					<div class="h-8 w-8 animate-spin rounded-full border-4 border-t-transparent"
-					     style="border-color: var(--primary); border-top-color: transparent;"></div>
-				</div>
-			</div>
-		</div>
-	{:else if passkeyStep === 'error'}
-		<div class="text-center">
-			<div class="glass-card p-8 text-center max-w-md">
-				<div class="mb-4 flex justify-center">
-					<div class="flex h-16 w-16 items-center justify-center rounded-full"
-					     style="background: rgba(239, 68, 68, 0.1);">
-						<span class="text-3xl">⚠️</span>
-					</div>
-				</div>
-				<h1 class="font-display text-xl font-bold" style="color: var(--foreground);">La verificación falló</h1>
-				<p class="mt-2" style="color: var(--foreground-muted);">
-					{passkeyError ?? 'Algo salió mal. Intentá de nuevo.'}
-				</p>
-				<button
-					onclick={() => window.location.reload()}
-					class="btn-primary mt-6 inline-flex items-center gap-2"
-				>
-					Reintentar
-				</button>
-			</div>
-		</div>
-	{:else if mode === 'qr'}
+
+		{#if mode === 'qr'}
 			<!-- QR Code Display -->
 			<div class="text-center">
 				{#if $page.data.qr}

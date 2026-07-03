@@ -12,8 +12,8 @@ import { Mutex } from 'async-mutex';
 import { GroqClient } from './groq-client.js';
 import { AudioHandler } from './audio-handler.js';
 import { WhatsAppSession } from './whatsapp-session.js';
-import type { BotOptions, QRResult, PasskeySubmitPayload } from './types.js';
-import { SessionStatus, SESSION_ID_PREFIX, type PairingStep, type Result } from './types.js';
+import type { BotOptions, QRResult } from './types.js';
+import { SessionStatus, SESSION_ID_PREFIX } from './types.js';
 
 export class ChepibeBot extends EventEmitter {
   private readonly options: BotOptions;
@@ -188,27 +188,6 @@ export class ChepibeBot extends EventEmitter {
       throw pairingResult.error;
     }
     return { code: pairingResult.value.code, sessionId: this.sessionId };
-  }
-
-  async submitPasskeyResponse(payload: PasskeySubmitPayload): Promise<Result<void>> {
-    if (!this.session) {
-      return { ok: false, error: new Error('Bot not started. Call start() first.') };
-    }
-    return this.session.submitPasskeyResponse(payload);
-  }
-
-  async submitPasskeyConfirmation(): Promise<Result<void>> {
-    if (!this.session) {
-      return { ok: false, error: new Error('Bot not started. Call start() first.') };
-    }
-    return this.session.submitConfirmation();
-  }
-
-  getPairingStep(): PairingStep {
-    if (!this.session) {
-      throw new Error('Bot not started. Call start() first.');
-    }
-    return this.session.getPairingStep();
   }
 
   async disconnect(): Promise<void> {

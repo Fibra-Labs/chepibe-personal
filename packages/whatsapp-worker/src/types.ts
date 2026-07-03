@@ -58,17 +58,6 @@ export enum TeardownReason {
   MaxRetries = 'max_retries',
   Disconnected = 'disconnected',
   Shutdown = 'shutdown',
-  PasskeyTimeout = 'passkey_timeout',
-  PasskeyError = 'passkey_error',
-}
-
-// --- Pairing Steps ---
-
-export enum PairingStep {
-  WaitingQr = 'waiting_qr',
-  WaitingPasskey = 'waiting_passkey',
-  WaitingConfirmation = 'waiting_confirmation',
-  Connected = 'connected',
 }
 
 // --- Events ---
@@ -78,9 +67,6 @@ export interface ConnectedPayload { sessionId: string; phoneNumber: string; }
 export interface DisconnectedPayload { sessionId: string; reason: string; }
 export interface RecoverableDisconnectPayload { sessionId: string; reason: string; statusCode: number; }
 export interface PermanentDisconnectPayload { sessionId: string; reason: string; statusCode: number; }
-export interface PasskeyRequestPayload { sessionId: string; publicKey: string; }
-export interface PasskeyConfirmationPayload { sessionId: string; code: string; skipHandoffUX: boolean; }
-export interface PasskeyErrorPayload { sessionId: string; error: string; isContinuation: boolean; }
 
 export const SessionEventName = {
   QrReady: 'QR_READY',
@@ -88,9 +74,6 @@ export const SessionEventName = {
   Disconnected: 'DISCONNECTED',
   RecoverableDisconnect: 'RECOVERABLE_DISCONNECT',
   PermanentDisconnect: 'PERMANENT_DISCONNECT',
-  PasskeyRequest: 'PASSKEY_REQUEST',
-  PasskeyConfirmation: 'PASSKEY_CONFIRMATION',
-  PasskeyError: 'PASSKEY_ERROR',
 } as const;
 export type SessionEventName = (typeof SessionEventName)[keyof typeof SessionEventName];
 
@@ -99,10 +82,7 @@ export type SessionEvent =
   | { type: typeof SessionEventName.Connected; payload: ConnectedPayload }
   | { type: typeof SessionEventName.Disconnected; payload: DisconnectedPayload }
   | { type: typeof SessionEventName.RecoverableDisconnect; payload: RecoverableDisconnectPayload }
-  | { type: typeof SessionEventName.PermanentDisconnect; payload: PermanentDisconnectPayload }
-  | { type: typeof SessionEventName.PasskeyRequest; payload: PasskeyRequestPayload }
-  | { type: typeof SessionEventName.PasskeyConfirmation; payload: PasskeyConfirmationPayload }
-  | { type: typeof SessionEventName.PasskeyError; payload: PasskeyErrorPayload };
+  | { type: typeof SessionEventName.PermanentDisconnect; payload: PermanentDisconnectPayload };
 
 // --- Constants ---
 
@@ -117,8 +97,6 @@ export const RECONNECT_BASE_DELAY_MS = 2000;
 export const RECONNECT_MAX_DELAY_MS = 60000;
 export const QR_TIMEOUT_MS = 60000;
 export const PAIRING_TIMEOUT_MS = 60000;
-export const PASSKEY_TIMEOUT_MS = 120000;
-export const HANDOFF_CODE_LENGTH = 8;
 
 export const ERROR_PREFIX_TIMEOUT_QR = 'Timeout waiting for QR code';
 export const ERROR_PREFIX_TIMEOUT_PAIRING = 'Timeout waiting for pairing code';
@@ -146,25 +124,3 @@ export interface BotOptions {
 export type QRResult =
   | { qrCode: string; sessionId: string; alreadyConnected: false }
   | { alreadyConnected: true; sessionId?: string; phoneNumber?: string; qrCode?: string };
-
-export interface WebAuthnResponseJSON {
-  credentialId: string;
-  clientDataJSON: string;
-  authenticatorData: string;
-  signature: string;
-  userHandler?: string;
-  attestationObject?: string;
-}
-
-export interface PasskeySubmitPayload {
-  sessionId: string;
-  response: WebAuthnResponseJSON;
-}
-
-export interface PasskeyLinkingCache {
-  ephemeralKeyPair: CryptoKeyPair;
-  companionNonce: Uint8Array;
-  pairingRef: Uint8Array;
-  deviceType: number;
-  passkeyHandoffKey: Uint8Array | null;
-}
