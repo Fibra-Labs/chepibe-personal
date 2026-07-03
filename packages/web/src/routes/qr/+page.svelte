@@ -271,7 +271,73 @@
 							>
 								{#if submitting}
 									<span>Generando...</span>
-								{:else}
+	{:else if passkeyStep === 'verifying'}
+		<div class="text-center">
+			<div class="glass-card animate-fade-up p-8 text-center max-w-md">
+				<div class="mb-4 flex justify-center">
+					<div class="flex h-16 w-16 items-center justify-center rounded-full"
+					     style="background: var(--primary-glow);">
+						<span class="text-3xl">🔐</span>
+					</div>
+				</div>
+				<h1 class="font-display text-2xl font-bold" style="color: var(--foreground);">Verificando en WhatsApp...</h1>
+				<p class="mt-2" style="color: var(--foreground-muted);">
+					Mantén la app abierta en ambos dispositivos
+				</p>
+				<div class="mt-6 flex justify-center">
+					<div class="h-8 w-8 animate-spin rounded-full border-4 border-t-transparent"
+					     style="border-color: var(--primary); border-top-color: transparent;"></div>
+				</div>
+			</div>
+		</div>
+	{:else if passkeyStep === 'confirming'}
+		<div class="text-center">
+			<div class="glass-card animate-fade-up p-8 text-center max-w-md">
+				<div class="mb-4 flex justify-center">
+					<div class="flex h-16 w-16 items-center justify-center rounded-full"
+					     style="background: var(--primary-glow);">
+						<span class="text-3xl">🔑</span>
+					</div>
+				</div>
+				<h1 class="font-display text-2xl font-bold" style="color: var(--foreground);">Confirmación requerida</h1>
+				{#if confirmationCode}
+					<div class="my-6">
+						<span class="text-5xl font-mono font-bold tracking-[0.3em]" style="color: var(--primary-dark);">
+							{confirmationCode}
+						</span>
+					</div>
+				{/if}
+				<p class="mt-4 text-sm" style="color: var(--foreground-muted);">
+					Ingresá este código en WhatsApp cuando te lo pida
+				</p>
+				<div class="mt-6 flex justify-center">
+					<div class="h-8 w-8 animate-spin rounded-full border-4 border-t-transparent"
+					     style="border-color: var(--primary); border-top-color: transparent;"></div>
+				</div>
+			</div>
+		</div>
+	{:else if passkeyStep === 'error'}
+		<div class="text-center">
+			<div class="glass-card p-8 text-center max-w-md">
+				<div class="mb-4 flex justify-center">
+					<div class="flex h-16 w-16 items-center justify-center rounded-full"
+					     style="background: rgba(239, 68, 68, 0.1);">
+						<span class="text-3xl">⚠️</span>
+					</div>
+				</div>
+				<h1 class="font-display text-xl font-bold" style="color: var(--foreground);">La verificación falló</h1>
+				<p class="mt-2" style="color: var(--foreground-muted);">
+					{passkeyError ?? 'Algo salió mal. Intentá de nuevo.'}
+				</p>
+				<button
+					onclick={() => window.location.reload()}
+					class="btn-primary mt-6 inline-flex items-center gap-2"
+				>
+					Reintentar
+				</button>
+			</div>
+		</div>
+	{:else}
 									Generar código
 									<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
 									     stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
